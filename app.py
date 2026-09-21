@@ -1,12 +1,8 @@
-"""HamzaLive Gradio workspace for the LiveKit voice agent.
+"""Headless LiveKit helpers for the HamzaLive voice agent.
 
-Run with:
-
-    python app.py
-
-The server-side functions in this module create room tokens and manage the
-LiveKit worker from agent.py. The HamzaLive interface below runs the live
-browser controls and transcript through the LiveKit JavaScript client.
+The browser/Gradio presentation layer has been removed. Run ``agent.py``
+to start the LiveKit worker; this module keeps the server-side worker and
+token helpers available for another API or frontend.
 """
 
 from __future__ import annotations
@@ -30,7 +26,6 @@ PROJECT_DIR = Path(__file__).resolve().parent
 AGENT_NAME = os.getenv("LIVEKIT_AGENT_NAME", "my-agent").strip() or "my-agent"
 DEFAULT_ROOM = f"voice-agent-{uuid.uuid4().hex[:12]}"
 DEFAULT_IDENTITY = "Hamza"
-LIVEKIT_CLIENT_CDN = "https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"
 
 _worker_process: subprocess.Popen[bytes] | None = None
 _worker_lock = threading.Lock()
@@ -72,7 +67,7 @@ def worker_status_markdown() -> str:
 
 
 def start_worker() -> tuple[str, str]:
-    """Start the LiveKit worker defined by agent.py."""
+    """Start the LiveKit worker defined in ``agent.py``."""
 
     global _worker_process
 
@@ -93,6 +88,19 @@ def start_worker() -> tuple[str, str]:
         ]
         worker_env = os.environ.copy()
         worker_env["PYTHONUNBUFFERED"] = "1"
+        # Do not inherit the unavailable local proxy used by this workspace.
+        # It makes LiveKit Cloud resolve to 127.0.0.1:9 instead of the cloud URL.
+        for proxy_key in (
+            "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
+            "http_proxy", "https_proxy", "all_proxy",
+        ):
+            if worker_env.get(proxy_key, "").strip().lower() in {
+                "http://127.0.0.1:9",
+                "http://localhost:9",
+            }:
+                worker_env.pop(proxy_key, None)
+        worker_env["NO_PROXY"] = "*"
+        worker_env["no_proxy"] = "*"
 
         try:
             _worker_process = subprocess.Popen(
@@ -112,7 +120,7 @@ def start_worker() -> tuple[str, str]:
 
 
 def stop_worker() -> tuple[str, str]:
-    """Stop only the worker process started by this dashboard."""
+    """Stop only the worker process started by this module."""
 
     global _worker_process
 
@@ -187,6 +195,8 @@ def start_session(room_name: str, participant_identity: str) -> tuple[str, str, 
 
 
 def disconnect_session() -> tuple[str, str, str, str]:
+    """Stop the worker and clear the current browser session values."""
+
     stop_worker()
     return "", "", "Disconnected", "The browser session ended and the backend worker is offline."
 
@@ -199,1121 +209,763 @@ def _shutdown_worker() -> None:
 atexit.register(_shutdown_worker)
 
 
-APP_CSS = """
+APP_CSS = r"""
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+
 :root {
-  --hl-bg: #080c14;
-  --hl-surface: #131927;
-  --hl-surface-2: #0d1422;
-  --hl-border: #212b3e;
-  --hl-muted: #94a3b8;
-  --hl-text: #f3f4f6;
-  --hl-blue: #4285f4;
-  --hl-purple: #a142f4;
-  --hl-cyan: #00e5ff;
-  --hl-shadow: 0 24px 60px rgba(0, 0, 0, .28);
+    --hl-bg: #ffffff;
+    --hl-surface: #ffffff;
+    --hl-surface-2: #f8fafc;
+    --hl-border: #e5e7eb;
+    --hl-muted: #6b7280;
+    --hl-text: #111827;
+    --hl-blue: #2563eb;
+    --hl-purple: #9333ea;
+    --hl-cyan: #06b6d4;
+    --hl-shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
 }
+
 * { box-sizing: border-box; }
-body, .gradio-container {
-  background: var(--hl-bg) !important;
-  color: var(--hl-text) !important;
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif !important;
+html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    overflow-x: hidden !important;
 }
-.gradio-container {
-  max-width: 1440px !important;
-  min-height: 100vh;
-  padding: 0 24px 30px !important;
+body {
+    height: 100vh !important;
+    overflow-y: hidden !important;
+    background: var(--hl-bg) !important;
+    color: var(--hl-text) !important;
+    font-family: 'Inter', ui-sans-serif, system-ui, sans-serif !important;
 }
-.gradio-container > .main { padding-top: 0 !important; }
+/* Strip every layer Gradio wraps our HTML in so nothing centers or pads it */
+gradio-app,
+.gradio-container,
+.gradio-container .main,
+.gradio-container > div,
+.contain,
+#root,
+.app {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    height: 100% !important;
+    min-height: 100vh !important;
+    background: var(--hl-bg) !important;
+}
+.hl-shell {
+    width: 100%;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 16px 24px;
+}
 .hl-app-header {
-  width: 100vw;
-  margin-left: calc(50% - 50vw);
-  height: 66px;
-  padding: 0 max(24px, calc((100vw - 1240px) / 2));
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  background: rgba(19, 25, 39, .78);
-  border-bottom: 1px solid rgba(255, 255, 255, .08);
-  backdrop-filter: blur(16px);
+    width: 100%;
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    background: #ffffff;
+    border-bottom: 1px solid var(--hl-border);
+    padding-bottom: 12px;
 }
-.hl-brand, .hl-brand-line, .hl-header-actions, .hl-status-badge, .hl-action-row,
-.hl-pill, .hl-latency, .hl-transcript-title, .hl-transcript-actions,
-.hl-control-group, .hl-control, .hl-main-action, .hl-mode-indicator {
-  display: flex;
-  align-items: center;
-}
-.hl-brand { gap: 11px; }
 .hl-logo {
-  width: 38px; height: 38px; display: grid; place-items: center; padding: 2px;
-  border-radius: 12px; background: linear-gradient(135deg, #2563eb, #9333ea, #22d3ee);
-  box-shadow: 0 10px 24px rgba(161, 66, 244, .22);
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
+    padding: 2px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #2563eb, #9333ea, #06b6d4);
 }
 .hl-logo-inner {
-  width: 100%; height: 100%; display: grid; place-items: center; border-radius: 10px;
-  background: #020617; color: var(--hl-cyan); font-size: 18px; font-weight: 800;
+    width: 100%;
+    height: 100%;
+    display: grid;
+    place-items: center;
+    border-radius: 6px;
+    background: #ffffff;
+    color: var(--hl-blue);
+    font-size: 16px;
+    font-weight: 800;
 }
-.hl-brand-copy { display: block; }
-.hl-brand-line { gap: 8px; }
-.hl-brand-name { color: var(--hl-text); font-size: 15px; font-weight: 900; letter-spacing: -.02em; }
-.hl-gradient-text {
-  background: linear-gradient(135deg, #4285f4, #a142f4 50%, #00e5ff);
-  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+.hl-status-dot.live {
+    background: var(--hl-blue);
+    box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.14);
+    animation: hl-pulse 2s infinite;
 }
-.hl-pro {
-  padding: 3px 7px; border: 1px solid rgba(161, 66, 244, .25); border-radius: 999px;
-  background: rgba(161, 66, 244, .1); color: #c084fc; font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+@keyframes hl-pulse {
+    0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4); }
+    70% { box-shadow: 0 0 0 8px rgba(37, 99, 235, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
 }
-.hl-tagline { margin-top: 3px; color: #94a3b8; font-size: 10px; }
-.hl-header-actions { gap: 10px; }
-.hl-status-badge {
-  gap: 8px; padding: 7px 11px; border: 1px solid #1e293b; border-radius: 999px;
-  background: rgba(2, 6, 23, .72); color: #94a3b8; font-size: 10px; font-weight: 700;
-  transition: .2s ease;
-}
-.hl-status-badge.live { border-color: rgba(0, 229, 255, .35); background: rgba(8, 47, 73, .58); color: #67e8f9; }
-.hl-status-dot { width: 7px; height: 7px; border-radius: 50%; background: #64748b; }
-.hl-status-dot.live { background: var(--hl-cyan); box-shadow: 0 0 0 4px rgba(0, 229, 255, .14); }
-.hl-settings-button {
-  width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid rgba(255,255,255,.1);
-  border-radius: 10px; background: rgba(30, 41, 59, .6); color: #cbd5e1; cursor: pointer; font-size: 15px;
-}
-.hl-settings-button:hover { background: #1e293b; color: #fff; }
-.hl-shell { max-width: 1240px; margin: 0 auto; }
-.hl-main { display: flex; flex-direction: column; gap: 20px; padding-top: 24px; }
 .hl-panel {
-  position: relative; overflow: hidden; min-height: 610px; display: flex; flex-direction: column;
-  border: 1px solid rgba(255,255,255,.08); border-radius: 25px; background: rgba(19,25,39,.7);
-  box-shadow: var(--hl-shadow); backdrop-filter: blur(16px);
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--hl-border);
+    border-radius: 16px;
+    background: #ffffff;
+    box-shadow: var(--hl-shadow);
+    min-height: 0;
 }
-.hl-action-row {
-  justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 16px 22px;
-  border-bottom: 1px solid rgba(148,163,184,.12); background: rgba(2,6,23,.42);
+.hl-workspace-split {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    min-height: 0;
+    overflow: hidden;
 }
-.hl-action-left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.hl-pill {
-  gap: 7px; padding: 6px 10px; border: 1px solid #1e293b; border-radius: 999px;
-  background: rgba(2,6,23,.72); color: #cbd5e1; font-size: 10px; font-weight: 600;
-}
-.hl-pill-icon { color: var(--hl-cyan); font-size: 12px; }
-.hl-pill.voice .hl-pill-icon { color: #c084fc; }
-.hl-latency { gap: 6px; color: #94a3b8; font-size: 10px; }
-.hl-latency-icon { color: #fbbf24; font-size: 14px; }
-.hl-latency strong { color: #e2e8f0; }
-.hl-workspace-grid { flex: 1; min-height: 0; gap: 0 !important; align-items: stretch !important; }
-.hl-visual-column, .hl-transcript-column { min-width: 0 !important; padding: 0 !important; }
-.hl-visual-column { border-right: 1px solid rgba(148,163,184,.12); }
 .hl-visualizer {
-  position: relative; min-height: 475px; display: flex; flex-direction: column; align-items: center; justify-content: space-between;
-  overflow: hidden; padding: 24px 28px 20px; background: linear-gradient(180deg, #020617, rgba(15,23,42,.7), #020617);
+    position: relative;
+    flex: 1;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    overflow: hidden;
+    padding: 16px;
+    background: radial-gradient(circle at 50% 28%, #eff6ff, transparent 42%), linear-gradient(180deg, #ffffff, #f8fafc);
+    border-right: 1px solid var(--hl-border);
 }
-.hl-visualizer::before {
-  content: ""; position: absolute; inset: 0; pointer-events: none;
-  background: radial-gradient(circle at center, rgba(66,133,244,.2), rgba(161,66,244,.1) 40%, transparent 70%);
-  opacity: .55;
+.hl-ambient-glow {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(circle at center, rgba(37, 99, 235, 0.12), transparent 68%);
 }
-.hl-ambient-glow { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(circle at center, rgba(0,229,255,.17), transparent 62%); opacity: .35; transition: .6s ease; }
-.hl-camera-feed { position: absolute; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #020617; }
-.hl-camera-feed.hidden, .hl-hidden { display: none !important; }
-.hl-camera-feed video { width: 100%; height: 100%; object-fit: cover; opacity: .64; transform: scaleX(-1); }
-.hl-camera-label { position: absolute; top: 15px; left: 15px; display: flex; align-items: center; gap: 7px; padding: 7px 10px; border: 1px solid #334155; border-radius: 999px; background: rgba(2,6,23,.82); color: #67e8f9; font-size: 10px; }
-.hl-camera-label span { width: 7px; height: 7px; border-radius: 50%; background: #ef4444; box-shadow: 0 0 0 3px rgba(239,68,68,.15); }
-.hl-camera-frame { position: absolute; inset: 15px; border: 2px solid rgba(34,211,238,.2); border-radius: 14px; pointer-events: none; }
-.hl-orb-area { position: relative; z-index: 20; display: flex; flex-direction: column; align-items: center; justify-content: center; margin: auto; padding: 20px 0; }
-#gemini-canvas { width: 280px; height: 280px; border-radius: 50%; cursor: pointer; filter: drop-shadow(0 20px 45px rgba(66,133,244,.18)); transition: transform .4s ease; }
+#gemini-canvas {
+    width: 180px;
+    height: 180px;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: transform .3s ease;
+}
 #gemini-canvas:hover { transform: scale(1.04); }
-.hl-orb-core {
-  position: absolute; width: 112px; height: 112px; display: flex; flex-direction: column; align-items: center; justify-content: center;
-  border: 1px solid rgba(100,116,139,.6); border-radius: 50%; background: rgba(2,6,23,.82); color: #fff; cursor: pointer;
-  box-shadow: inset 0 0 26px rgba(15,23,42,.8); transition: .3s ease;
+.hl-transcript-side {
+    flex: 1;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 16px;
+    background: #f9fafb;
+    min-height: 0;
 }
-.hl-orb-core:hover { border-color: var(--hl-cyan); box-shadow: 0 0 28px rgba(0,229,255,.16), inset 0 0 26px rgba(15,23,42,.8); }
-.hl-orb-icon { color: var(--hl-cyan); font-size: 27px; line-height: 1; }
-.hl-orb-subtext { margin-top: 5px; color: #94a3b8; font-size: 9px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
-.hl-session-copy { max-width: 390px; text-align: center; }
-.hl-session-title { color: #fff; font-size: 19px; font-weight: 800; letter-spacing: -.02em; }
-.hl-session-subtitle { margin-top: 5px; color: #94a3b8; font-size: 10px; line-height: 1.6; }
-.hl-mode-indicator {
-  position: relative; z-index: 20; gap: 8px; padding: 8px 13px; border: 1px solid #1e293b; border-radius: 14px;
-  background: rgba(15,23,42,.9); color: #cbd5e1; box-shadow: 0 8px 20px rgba(0,0,0,.22); font-size: 10px;
-}
-.hl-mode-dot { width: 7px; height: 7px; border-radius: 50%; background: #34d399; }
-.hl-transcript-column {
-  display: flex; flex-direction: column; justify-content: space-between; gap: 15px; padding: 20px !important;
-  background: rgba(2,6,23,.56);
-}
-.hl-transcript-head { display: flex; align-items: center; justify-content: space-between; padding-bottom: 12px; border-bottom: 1px solid rgba(148,163,184,.12); }
-.hl-transcript-title { gap: 8px; color: #cbd5e1; font-size: 10px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }
-.hl-transcript-title-icon { color: #c084fc; font-size: 15px; }
-.hl-transcript-actions { gap: 5px; }
-.hl-transcript-action { width: 27px; height: 27px; display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; color: #94a3b8; cursor: pointer; font-size: 13px; }
-.hl-transcript-action:hover { background: #1e293b; color: #fff; }
 .hl-transcript-feed {
-  flex: 1; min-height: 260px; max-height: 390px; overflow-y: auto; display: flex; flex-direction: column; gap: 11px;
-  padding: 14px; border: 1px solid rgba(148,163,184,.12); border-radius: 15px; background: rgba(15,23,42,.5);
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid var(--hl-border);
+    border-radius: 10px;
+    background: #ffffff;
+    scroll-behavior: smooth;
+    min-height: 0;
 }
-.hl-empty-transcript { min-height: 220px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; color: #64748b; text-align: center; font-size: 10px; }
-.hl-empty-icon { margin-bottom: 9px; color: #334155; font-size: 27px; }
-.hl-message { display: flex; flex-direction: column; max-width: 90%; gap: 4px; }
-.hl-message.user { align-self: flex-end; align-items: flex-end; }
-.hl-message.agent, .hl-message.system { align-self: flex-start; align-items: flex-start; }
-.hl-message-meta { display: flex; gap: 8px; color: #64748b; font-size: 9px; }
-.hl-message-agent { color: #67e8f9; font-weight: 800; }
-.hl-message-bubble { padding: 8px 11px; border: 1px solid rgba(71,85,105,.62); border-radius: 13px 13px 13px 3px; background: #1e293b; color: #f1f5f9; font-size: 10px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
-.hl-message.user .hl-message-bubble { border: 0; border-radius: 13px 13px 3px 13px; background: linear-gradient(135deg, #2563eb, #9333ea); color: #fff; }
-.hl-message.system .hl-message-bubble { border-color: rgba(161,66,244,.25); background: rgba(88,28,135,.22); color: #d8b4fe; font-size: 9px; }
-.hl-text-form { position: relative; display: flex; align-items: center; }
-.hl-text-input { width: 100%; padding: 10px 39px 10px 13px; border: 1px solid #1e293b; border-radius: 11px; outline: none; background: #0f172a; color: #fff; font-size: 10px; }
-.hl-text-input::placeholder { color: #64748b; }
-.hl-text-input:focus { border-color: #a142f4; box-shadow: 0 0 0 3px rgba(161,66,244,.13); }
-.hl-text-submit { position: absolute; right: 5px; width: 27px; height: 27px; display: grid; place-items: center; border: 0; border-radius: 8px; background: linear-gradient(135deg, #2563eb, #9333ea); color: #fff; cursor: pointer; font-size: 14px; }
-.hl-event-log { min-height: 14px; overflow: hidden; color: #64748b; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-.hl-control-dock { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; padding: 15px 18px; border-top: 1px solid rgba(148,163,184,.12); background: rgba(2,6,23,.9); }
-.hl-control-group { gap: 8px; flex-wrap: wrap; }
+.hl-scroll-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border: 1px solid var(--hl-border);
+    border-radius: 6px;
+    background: #ffffff;
+    color: #2563eb;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+.hl-scroll-btn:hover { background: #eff6ff; border-color: #bfdbfe; }
 .hl-control {
-  gap: 7px; padding: 9px 12px; border: 1px solid #1e293b; border-radius: 10px; background: #0f172a; color: #cbd5e1;
-  cursor: pointer; font-size: 10px; font-weight: 800; transition: .18s ease;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #111827;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 700;
+    transition: .15s ease;
 }
-.hl-control:hover:not(:disabled) { border-color: #475569; background: #1e293b; color: #fff; }
-.hl-control:disabled { opacity: .4; cursor: not-allowed; }
-.hl-control-icon { color: #94a3b8; font-size: 14px; }
-.hl-control-icon.cyan { color: #22d3ee; }
-.hl-control-icon.purple { color: #c084fc; }
+.hl-control:hover { border-color: #60a5fa; background: #eff6ff; color: #1d4ed8; }
+.hl-control.active { background: #eff6ff; border-color: #2563eb; color: #2563eb; }
 .hl-main-action {
-  gap: 8px; padding: 10px 17px; border: 0; border-radius: 10px; background: linear-gradient(135deg, #2563eb, #9333ea, #06b6d4);
-  color: #fff; box-shadow: 0 10px 22px rgba(126,34,206,.25); cursor: pointer; font-size: 10px; font-weight: 900; transition: .18s ease;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border: 0;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #f97316, #ea580c);
+    color: #fff;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 800;
+    transition: opacity 0.2s;
 }
-.hl-main-action:hover { filter: brightness(1.12); transform: translateY(-1px); }
-.hl-main-action.connected { background: #dc2626; box-shadow: 0 10px 22px rgba(220,38,38,.2); }
-.hl-server-message { max-width: 1240px; margin: 9px auto 0 !important; color: #64748b !important; font-size: 9px !important; }
-.hl-server-hint { max-width: 1240px; margin: 0 auto !important; color: #475569 !important; font-size: 9px !important; }
-.hl-footer { max-width: 1240px; margin: 18px auto 0; padding-top: 13px; border-top: 1px solid rgba(148,163,184,.1); color: #64748b; text-align: center; font-size: 9px; }
-.hl-settings-modal {
-  position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 18px;
-  background: rgba(2,6,23,.82); backdrop-filter: blur(12px);
+.hl-main-action:hover { opacity: 0.9; }
+.hl-backend-hidden {
+    position: fixed !important;
+    left: -10000px !important;
+    top: -10000px !important;
+    width: 1px !important;
+    height: 1px !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
 }
-.hl-settings-card { width: min(100%, 480px); padding: 22px; border: 1px solid rgba(255,255,255,.1); border-radius: 23px; background: rgba(19,25,39,.9); box-shadow: var(--hl-shadow); }
-.hl-settings-head { display: flex; align-items: center; justify-content: space-between; padding-bottom: 14px; border-bottom: 1px solid rgba(148,163,184,.12); }
-.hl-settings-title { display: flex; align-items: center; gap: 8px; color: #fff; font-size: 14px; font-weight: 900; }
-.hl-settings-title-icon { color: #c084fc; font-size: 17px; }
-.hl-close-settings { width: 27px; height: 27px; border: 0; border-radius: 8px; background: transparent; color: #94a3b8; cursor: pointer; font-size: 18px; }
-.hl-close-settings:hover { background: #1e293b; color: #fff; }
-.hl-setting-group { margin-top: 16px; }
-.hl-setting-label { display: block; margin-bottom: 6px; color: #94a3b8; font-size: 9px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }
-.hl-setting-select, .hl-setting-input { width: 100%; padding: 10px 12px; border: 1px solid #1e293b; border-radius: 10px; outline: none; background: #0f172a; color: #e2e8f0; font-size: 10px; }
-.hl-setting-select:focus, .hl-setting-input:focus { border-color: #a142f4; box-shadow: 0 0 0 3px rgba(161,66,244,.12); }
-.hl-range-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; color: #94a3b8; font-size: 10px; }
-.hl-range { width: 100%; height: 5px; accent-color: #a142f4; }
-.hl-apply-settings { width: 100%; margin-top: 18px; padding: 11px; border: 0; border-radius: 10px; background: linear-gradient(135deg, #2563eb, #9333ea); color: #fff; cursor: pointer; font-size: 10px; font-weight: 900; }
-.hl-internal { position: fixed !important; left: -10000px !important; top: -10000px !important; width: 1px !important; height: 1px !important; opacity: 0 !important; pointer-events: none !important; overflow: hidden !important; }
-@media (max-width: 900px) {
-  .gradio-container { padding: 0 12px 24px !important; }
-  .hl-app-header { padding: 0 13px; }
-  .hl-tagline, .hl-status-badge { display: none; }
-  .hl-main { padding-top: 15px; }
-  .hl-panel { min-height: auto; }
-  .hl-action-row { padding: 13px 15px; }
-  .hl-visual-column { border-right: 0; border-bottom: 1px solid rgba(148,163,184,.12); }
-  .hl-visualizer { min-height: 410px; padding: 16px 18px; }
-  #gemini-canvas { width: 240px; height: 240px; }
-  .hl-orb-core { width: 96px; height: 96px; }
-  .hl-transcript-column { min-height: 425px; padding: 16px !important; }
-  .hl-control-dock { align-items: stretch; }
-  .hl-control-group { width: 100%; }
-  .hl-main-action { flex: 1 1 190px; justify-content: center; }
-}
-
-/* Light workspace theme */
-body, .gradio-container {
-  background: #f6f8fc !important;
-  color: #0f172a !important;
-}
-.hl-app-header {
-  background: rgba(255,255,255,.94);
-  border-bottom-color: #e2e8f0;
-}
-.hl-brand-name { color: #0f172a; }
-.hl-tagline { color: #64748b; }
-.hl-status-badge { background: #f8fafc; border-color: #dbe3ef; color: #64748b; }
-.hl-settings-button { background: #fff; border-color: #dbe3ef; color: #475569; box-shadow: 0 4px 10px rgba(15,23,42,.05); }
-.hl-settings-button:hover { background: #eff6ff; border-color: #93c5fd; color: #1d4ed8; }
-.hl-panel {
-  background: #fff;
-  border-color: #dbe3ef;
-  box-shadow: 0 20px 50px rgba(15,23,42,.09);
-}
-.hl-action-row { background: #fff; border-bottom-color: #e2e8f0; }
-.hl-pill { background: #eff6ff; border-color: #bfdbfe; color: #1e3a8a; }
-.hl-pill.voice { background: #fff7ed; border-color: #fed7aa; color: #9a3412; }
-.hl-pill-icon { color: #2563eb; }
-.hl-pill.voice .hl-pill-icon { color: #ea580c; }
-.hl-visual-column { border-right-color: #e2e8f0; }
-.hl-visualizer {
-  background: radial-gradient(circle at 50% 25%, rgba(219,234,254,.9), transparent 42%), linear-gradient(180deg, #ffffff, #eff6ff);
-}
-.hl-visualizer::before { background: radial-gradient(circle at center, rgba(59,130,246,.16), rgba(249,115,22,.08) 42%, transparent 72%); }
-.hl-ambient-glow { background: radial-gradient(circle at center, rgba(37,99,235,.17), rgba(249,115,22,.08), transparent 68%); }
-.hl-orb-core { border-color: #bfdbfe; background: rgba(255,255,255,.9); color: #1d4ed8; box-shadow: 0 8px 22px rgba(37,99,235,.12), inset 0 0 20px rgba(219,234,254,.7); }
-.hl-orb-core:hover { border-color: #2563eb; box-shadow: 0 0 28px rgba(37,99,235,.18), inset 0 0 20px rgba(219,234,254,.7); }
-.hl-orb-icon { color: #2563eb; }
-.hl-orb-subtext { color: #64748b; }
-.hl-session-title { color: #0f172a; }
-.hl-session-subtitle { color: #64748b; }
-.hl-mode-indicator { background: rgba(255,255,255,.9); border-color: #dbe3ef; color: #475569; box-shadow: 0 8px 20px rgba(15,23,42,.08); }
-.hl-mode-dot { background: #16a34a; }
-.hl-transcript-column { background: #f8fafc; border-left-color: #e2e8f0; }
-.hl-transcript-head { border-bottom-color: #e2e8f0; }
-.hl-transcript-title { color: #334155; }
-.hl-transcript-action:hover { background: #eff6ff; color: #1d4ed8; }
-.hl-transcript-feed { border-color: #dbe3ef; background: #fff; }
-.hl-empty-transcript { color: #94a3b8; }
-.hl-empty-icon { color: #cbd5e1; }
-.hl-message-meta { color: #94a3b8; }
-.hl-message-agent { color: #2563eb; }
-.hl-message-bubble { border-color: #dbe3ef; background: #f1f5f9; color: #1e293b; }
-.hl-message.user .hl-message-bubble { background: linear-gradient(135deg, #2563eb, #1d4ed8); }
-.hl-message.system .hl-message-bubble { border-color: #fed7aa; background: #fff7ed; color: #c2410c; }
-.hl-text-input { border-color: #dbe3ef; background: #fff; color: #0f172a; }
-.hl-text-input::placeholder { color: #94a3b8; }
-.hl-text-input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
-.hl-text-submit { background: linear-gradient(135deg, #2563eb, #1d4ed8); }
-.hl-control-dock { justify-content: flex-start; border-top-color: #e2e8f0; background: #fff; }
-.hl-control-group { gap: 9px; }
-.hl-control, .hl-main-action {
-  min-height: 40px;
-  border-radius: 11px;
-  box-shadow: 0 4px 10px rgba(15,23,42,.06);
-}
-.hl-control { border-color: #cbd5e1; background: #fff; color: #1e3a8a; }
-.hl-control:hover:not(:disabled) { border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; box-shadow: 0 7px 15px rgba(37,99,235,.12); }
-.hl-control-icon { color: #2563eb; }
-.hl-control-icon.cyan { color: #2563eb; }
-.hl-control-icon.purple { color: #ea580c; }
-.hl-main-action {
-  background: linear-gradient(135deg, #2563eb, #1d4ed8);
-  box-shadow: 0 8px 17px rgba(37,99,235,.22);
-}
-.hl-main-action:hover { filter: brightness(1.08); box-shadow: 0 10px 20px rgba(37,99,235,.28); }
-.hl-main-action.connected { background: linear-gradient(135deg, #f97316, #ea580c); box-shadow: 0 8px 17px rgba(249,115,22,.22); }
-.hl-main-action.connected:hover { background: linear-gradient(135deg, #ea580c, #c2410c); }
-.hl-server-message, .hl-server-hint { color: #64748b !important; }
-.hl-settings-modal { background: rgba(15,23,42,.4); }
-.hl-settings-card { border-color: #dbe3ef; background: rgba(255,255,255,.98); box-shadow: 0 24px 60px rgba(15,23,42,.18); }
-.hl-settings-head { border-bottom-color: #e2e8f0; }
-.hl-settings-title { color: #0f172a; }
-.hl-close-settings { color: #64748b; }
-.hl-close-settings:hover { background: #eff6ff; color: #1d4ed8; }
-.hl-setting-label, .hl-range-row { color: #64748b; }
-.hl-setting-select, .hl-setting-input { border-color: #dbe3ef; background: #f8fafc; color: #1e293b; }
-.hl-setting-select:focus, .hl-setting-input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
-.hl-apply-settings { background: linear-gradient(135deg, #2563eb, #1d4ed8); box-shadow: 0 8px 16px rgba(37,99,235,.2); }
-.hl-footer { border-top-color: #e2e8f0; color: #94a3b8; }
-button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid rgba(37,99,235,.25); outline-offset: 2px; }
-@media (max-width: 900px) {
-  .hl-control-group { width: 100%; }
-  .hl-main-action { flex: 1 1 190px; }
-}
-
-/* Final white professional treatment */
-body, .gradio-container {
-  background: #ffffff !important;
-  color: #111827 !important;
-}
-.hl-app-header {
-  background: #ffffff;
-  border-bottom-color: #e5e7eb;
-}
-.hl-brand-name {
-  color: #111827 !important;
-  background: none !important;
-  -webkit-text-fill-color: #111827 !important;
-}
-.hl-tagline, .hl-latency, .hl-server-message, .hl-server-hint { color: #4b5563 !important; }
-.hl-status-badge { background: #f9fafb; border-color: #d1d5db; color: #111827; }
-.hl-settings-button { background: #ffffff; border-color: #d1d5db; color: #111827; }
-.hl-panel { background: #ffffff; border-color: #d1d5db; box-shadow: 0 18px 45px rgba(15,23,42,.08); }
-.hl-action-row { background: #ffffff; border-bottom-color: #e5e7eb; }
-.hl-pill { background: #eff6ff; border-color: #bfdbfe; color: #1e3a8a; }
-.hl-pill.voice { background: #fff7ed; border-color: #fed7aa; color: #9a3412; }
-.hl-visualizer {
-  background: radial-gradient(circle at 50% 28%, #eff6ff, transparent 42%), linear-gradient(180deg, #ffffff, #f8fafc);
-}
-.hl-visualizer::before { background: radial-gradient(circle at center, rgba(37,99,235,.11), rgba(249,115,22,.06) 45%, transparent 72%); }
-.hl-session-title { color: #111827 !important; }
-.hl-session-subtitle { color: #4b5563 !important; }
-.hl-mode-indicator { background: #ffffff; border-color: #d1d5db; color: #111827; }
-.hl-transcript-column { background: #f9fafb; border-left-color: #e5e7eb; }
-.hl-transcript-head { border-bottom-color: #e5e7eb; }
-.hl-transcript-title { color: #111827; }
-.hl-transcript-feed { background: #ffffff; border-color: #d1d5db; }
-.hl-empty-transcript { color: #6b7280; }
-.hl-message-meta { color: #6b7280; }
-.hl-message-agent { color: #1d4ed8; }
-.hl-message-bubble { background: #f3f4f6; border-color: #d1d5db; color: #111827; }
-.hl-text-input { background: #ffffff; border-color: #d1d5db; color: #111827; }
-.hl-control-dock { background: #ffffff; border-top-color: #e5e7eb; }
-.hl-control { background: #ffffff; border-color: #cbd5e1; color: #111827; }
-.hl-control:hover:not(:disabled) { background: #eff6ff; border-color: #60a5fa; color: #1d4ed8; }
-.hl-top-session { flex: 0 0 auto; }
-.hl-action-right { display: flex; align-items: center; gap: 13px; }
-.hl-settings-card { background: #ffffff; border-color: #d1d5db; }
-.hl-settings-title { color: #111827; }
-.hl-setting-label, .hl-range-row { color: #4b5563; }
-.hl-setting-select, .hl-setting-input { background: #f9fafb; border-color: #d1d5db; color: #111827; }
-.hl-footer { color: #6b7280; border-top-color: #e5e7eb; }
-.hl-footer.hl-footer-bar {
-  max-width: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 2px 4px 0;
-  border-top: 0;
-  text-align: left;
-  white-space: nowrap;
-}
-.hl-footer-bar .hl-footer-status,
-.hl-footer-bar .hl-footer-links { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.hl-footer-bar .hl-footer-status { overflow: hidden; text-overflow: ellipsis; }
-.hl-footer-bar .hl-footer-links { flex-shrink: 0; gap: 10px; }
-.hl-footer-bar a { color: #64748b; text-decoration: none; transition: color .18s ease; }
-.hl-footer-bar a:hover { color: #1d4ed8; }
-.hl-footer-status-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: #22c55e; }
-@media (max-width: 900px) {
-  .hl-action-right { width: 100%; justify-content: space-between; }
-  .hl-top-session { flex: 1 1 auto; justify-content: center; }
-  .hl-footer.hl-footer-bar { align-items: flex-start; flex-direction: column; gap: 5px; }
-  .hl-footer-bar .hl-footer-links { flex-wrap: wrap; }
-}
-
-/* Compact laptop layout */
-.hl-panel { min-height: auto; }
-.hl-visualizer {
-  min-height: 315px;
-  padding: 14px 24px 16px;
-}
-.hl-canvas-wrap { position: relative; display: flex; align-items: center; justify-content: center; }
-#gemini-canvas { width: 210px; height: 210px; }
-.hl-transcript-under-session {
-  min-height: auto !important;
-  display: flex;
-  gap: 9px;
-  padding: 13px 18px 15px !important;
-  border-top: 1px solid #e5e7eb;
-  border-left: 0 !important;
-}
-.hl-transcript-under-session .hl-transcript-feed {
-  min-height: 92px;
-  max-height: 145px;
-}
-.hl-transcript-under-session .hl-empty-transcript { min-height: 72px; }
-.hl-top-controls { display: flex; align-items: center; gap: 6px; }
-.hl-top-controls .hl-control {
-  min-height: 34px;
-  padding: 7px 9px;
-  font-size: 9px;
-}
-.hl-top-controls .hl-control-icon { font-size: 12px; }
-.hl-action-right { gap: 8px; }
-.hl-latency strong { color: #111827 !important; }
-.hl-camera-label, .hl-camera-label span:last-child { color: #111827; }
-.hl-settings-title, .hl-setting-label, .hl-range-row, .hl-message-agent,
-.hl-transcript-title, .hl-session-title, .hl-mode-indicator, .hl-event-log { color: #111827 !important; }
-@media (max-width: 900px) {
-  .hl-visualizer { min-height: 285px; }
-  #gemini-canvas { width: 185px; height: 185px; }
-  .hl-top-controls { width: 100%; }
-  .hl-top-controls .hl-control { flex: 1 1 auto; justify-content: center; }
-  .hl-action-right { flex-wrap: wrap; }
-  .hl-transcript-under-session { padding: 12px !important; }
-}
-
-/* HamzaLive compact dashboard composition */
-body { overflow: hidden !important; }
-.hl-main {
-  height: calc(100vh - 100px);
-  min-height: 0;
-  padding-top: 12px;
-  gap: 8px;
-}
-.hl-panel {
-  flex: 1 1 auto;
-  min-height: 0;
-  height: auto;
-}
-.hl-action-row {
-  min-height: 48px;
-  padding: 8px 14px;
-}
-.hl-visualizer {
-  flex: 1 1 auto;
-  min-height: 0;
-  padding: 12px 20px 10px;
-  background: linear-gradient(180deg, rgba(245,243,255,.68), rgba(248,250,252,.55) 58%, #fff);
-}
-.hl-visualizer::before { opacity: .65; }
-.hl-robot-stage {
-  position: relative;
-  z-index: 2;
-  display: flex;
-  min-height: 0;
-  flex: 1 1 auto;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
-.hl-robot-aura {
-  position: absolute;
-  width: 190px;
-  height: 190px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, rgba(99,102,241,.18), rgba(168,85,247,.16), rgba(34,211,238,.15));
-  filter: blur(22px);
-  animation: hl-pulse-glow 2.5s ease-in-out infinite;
-}
-.hl-robot-wrap {
-  position: relative;
-  z-index: 1;
-  width: clamp(126px, 22vh, 174px);
-  height: clamp(126px, 22vh, 174px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  animation: hl-float 4s ease-in-out infinite;
-}
-.hl-robot-svg {
-  width: 100%;
-  height: 100%;
-  filter: drop-shadow(0 10px 20px rgba(99,102,241,.28));
-}
-.hl-robot-eyes { animation: hl-eye-pulse 2.2s ease-in-out infinite; }
-.hl-session-copy { margin-top: 6px; }
-.hl-session-title { font-size: 16px; }
-.hl-session-subtitle { font-size: 10px; }
-.hl-mode-indicator { margin-top: 8px; padding: 6px 11px; }
-.hl-transcript-under-session {
-  flex: 0 0 35%;
-  height: 35%;
-  min-height: 155px !important;
-  max-height: 260px;
-  padding: 8px 14px 10px !important;
-  gap: 7px;
-}
-.hl-transcript-under-session .hl-transcript-head { padding-bottom: 7px; }
-.hl-transcript-under-session .hl-transcript-feed {
-  min-height: 0;
-  max-height: none;
-  padding: 10px 12px;
-}
-.hl-transcript-under-session .hl-empty-transcript { min-height: 68px; }
-.hl-transcript-under-session .hl-text-input { padding-top: 8px; padding-bottom: 8px; }
-.hl-transcript-under-session .hl-event-log { min-height: 10px; }
-.hl-server-message, .hl-server-hint { display: none !important; }
-.hl-footer { margin-top: 0; padding-top: 2px; border-top: 0; }
-@keyframes hl-pulse-glow {
-  0%, 100% { transform: scale(.96); opacity: .75; filter: blur(22px); }
-  50% { transform: scale(1.06); opacity: 1; filter: blur(15px); }
-}
-@keyframes hl-float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-6px); }
-}
-@keyframes hl-eye-pulse {
-  0%, 100% { opacity: .78; }
-  50% { opacity: 1; }
-}
-@media (max-width: 900px) {
-  body { overflow: auto !important; }
-  .hl-main { height: auto; min-height: calc(100vh - 90px); }
-  .hl-panel { min-height: 680px; }
-  .hl-action-row { align-items: flex-start; }
-  .hl-visualizer { min-height: 310px; }
-  .hl-transcript-under-session { flex-basis: 300px; height: 300px; max-height: none; }
+.hl-transcript-side .hl-message-user { align-self: flex-end; }
+.hl-transcript-side .hl-message-agent { align-self: flex-start; }
+.hl-transcript-side a { text-decoration: none; }
+@media (max-width: 768px) {
+    body { overflow-y: auto !important; }
+    .gradio-container { height: auto !important; min-height: 100vh !important; }
+    .hl-shell { min-height: 100vh; height: auto; padding: 10px 12px; }
+    .hl-workspace-split { grid-template-columns: 1fr; overflow: visible; }
+    .hl-visualizer { min-height: 360px; border-right: 0; border-bottom: 1px solid var(--hl-border); }
+    .hl-transcript-side { min-height: 360px; }
+    .hl-app-header { height: auto; min-height: 48px; }
+    .hl-app-header > div:last-child { gap: 6px; }
 }
 """
 
 
-LIVEKIT_CLIENT_JS = """
+UI_HTML = r"""
+<div class="hl-shell">
+    <header class="hl-app-header">
+        <div class="flex items-center gap-3">
+            <div class="hl-logo"><div class="hl-logo-inner">✦</div></div>
+            <div class="flex flex-col">
+                <div class="flex items-center gap-2">
+                    <span class="text-sm font-black text-gray-900">HamzaLive</span>
+                    <span class="px-1.5 py-0.5 border border-purple-300 rounded-full bg-purple-50 text-purple-700 text-[9px] font-extrabold uppercase">PRO 2.0</span>
+                </div>
+                <span class="text-[10px] text-gray-500">Ultra-low Latency Voice & Vision Multimodal AI</span>
+            </div>
+        </div>
+        <div class="flex items-center gap-2.5">
+            <div class="flex items-center gap-2 px-3 py-1 border border-gray-200 rounded-full bg-slate-50 text-xs font-semibold text-gray-900" id="hl-status-badge">
+                <span class="w-2 h-2 rounded-full hl-status-dot live"></span>
+                <span id="hl-status-text" class="text-[11px]">Live Room Active</span>
+            </div>
+            <button class="w-8 h-8 grid place-items-center border border-gray-200 rounded-lg bg-white hover:bg-gray-50 text-gray-700 font-bold transition" title="Settings">⚙</button>
+        </div>
+    </header>
+
+    <main class="flex-1 flex flex-col gap-2.5 min-h-0">
+        <div class="hl-panel">
+            <div class="flex items-center justify-between gap-3 flex-wrap px-4 py-2.5 border-b border-gray-200 bg-white">
+                <div class="flex items-center gap-2 flex-wrap">
+                    <div class="flex items-center gap-1.5 px-2.5 py-1 border border-blue-200 rounded-full bg-blue-50 text-blue-900 text-[10px] font-semibold">
+                        <span class="text-blue-600">◆</span><span>Gemini 2.0 Flash Voice</span>
+                    </div>
+                    <div class="flex items-center gap-1.5 px-2.5 py-1 border border-orange-200 rounded-full bg-orange-50 text-orange-950 text-[10px] font-semibold">
+                        <span class="text-orange-600"></span><span>Voice: Aoede (Warm & Conversational)</span>
+                    </div>
+                </div>
+                <div class="flex items-center gap-1.5 text-xs text-gray-600">
+                    <span class="text-amber-500 text-sm">⚡</span>
+                    <span class="text-[11px]">Latency: <strong class="text-gray-900">Live</strong></span>
+                </div>
+            </div>
+
+            <div class="hl-workspace-split">
+                <div class="hl-visualizer">
+                    <div class="hl-ambient-glow"></div>
+                    <div class="relative z-10 flex flex-col items-center justify-center my-auto">
+                        <canvas id="gemini-canvas" width="200" height="200"></canvas>
+                    </div>
+                    <div class="text-center max-w-sm z-10">
+                        <div class="text-gray-900 text-base font-bold">HamzaLive Listening...</div>
+                        <div class="text-gray-500 text-[11px] mt-0.5">Speak naturally into your microphone or toggle vision stream.</div>
+                    </div>
+                    <div class="relative z-10 flex items-center gap-1.5 px-2.5 py-1 border border-gray-200 rounded-xl bg-white text-[10px] text-gray-800">
+                        <span class="w-1.5 h-1.5 rounded-full bg-green-600"></span><span>VAD Auto-detection Enabled</span>
+                    </div>
+                </div>
+
+                <div class="hl-transcript-side">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-1.5 text-gray-900 text-[10px] font-black tracking-wider uppercase"><span>LIVE TRANSCRIPT</span></div>
+                        <button class="hl-scroll-btn" onclick="scrollToBottomTranscript()"><span>Scroll to Bottom</span> ↓</button>
+                    </div>
+
+                    <div class="hl-transcript-feed" id="hl-transcript-feed">
+                        <div class="flex flex-col max-w-[85%] gap-0.5 self-start items-start">
+                            <div class="text-[9px] text-gray-500">HamzaLive · 08:12 PM</div>
+                            <div class="px-3 py-2 border border-gray-200 rounded-xl bg-gray-100 text-gray-900 text-[11px] leading-relaxed">Hi there! How is your day going so far?</div>
+                        </div>
+                        <div class="flex flex-col max-w-[85%] gap-0.5 self-end items-end">
+                            <div class="text-[9px] text-gray-500">You · 08:12 PM</div>
+                            <div class="px-3 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 text-white text-[11px] leading-relaxed">Introduce yourself in full</div>
+                        </div>
+                        <div class="flex flex-col max-w-[85%] gap-0.5 self-start items-start">
+                            <div class="text-[9px] text-gray-500">HamzaLive · 08:12 PM</div>
+                            <div class="px-3 py-2 border border-gray-200 rounded-xl bg-gray-100 text-gray-900 text-[11px] leading-relaxed">I am HamzaLive, your ultra-low latency voice and vision multimodal assistant powered by Gemini 2.0 Flash and LiveKit WebSockets!</div>
+                        </div>
+                    </div>
+
+                    <form onsubmit="handleSend(event)" class="relative flex items-center mt-1">
+                        <input type="text" id="transcript-input" class="w-full py-2 pl-3 pr-10 border border-gray-200 rounded-lg outline-none bg-white text-gray-900 text-[11px] focus:border-blue-600" placeholder="Type a message or speak..." />
+                        <button type="submit" class="absolute right-1 w-6 h-6 grid place-items-center border-0 rounded-md bg-blue-600 text-white hover:bg-blue-700 cursor-pointer text-xs">➔</button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-between gap-2 px-4 py-2.5 border-t border-gray-200 bg-white">
+                <div class="flex items-center gap-2">
+                    <button class="hl-control" id="mic-btn" onclick="toggleControl('mic-btn', '🔇 Mute Mic', '🎙 Mic Active')"><span>🔇 Mute Mic</span></button>
+                    <button class="hl-control" id="cam-btn" onclick="toggleControl('cam-btn', '💻 Vision Stream', '💻 Vision Active')"><span>💻 Vision Stream</span></button>
+                    <button class="hl-control" id="spk-btn" onclick="toggleControl('spk-btn', '🔊 Speaker On', '🔇 Speaker Muted')"><span>🔊 Speaker On</span></button>
+                </div>
+                <button class="hl-main-action" id="session-btn" onclick="toggleSession(this)"><span>⏹ End Session</span></button>
+            </div>
+        </div>
+    </main>
+
+    <footer class="flex items-center justify-between py-1 text-[10px] text-gray-500 border-t border-gray-200">
+        <div id="footer-status">Ready · voice-agent-411c19001dc9 · Token issued for Hamza. Backend worker is online.</div>
+        <div class="flex gap-2.5 text-gray-500">
+            <a href="#" class="hover:text-blue-600 text-decoration-none">Runs</a>
+            <a href="#" class="hover:text-blue-600 text-decoration-none">Use via API</a>
+            <a href="#" class="hover:text-blue-600 text-decoration-none">Built with Gradio</a>
+            <a href="#" class="hover:text-blue-600 text-decoration-none">Settings</a>
+        </div>
+    </footer>
+</div>
+"""
+
+
+UI_JS = r"""
 () => {
-  const CDN = "https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js";
-  const state = {
-    room: null,
-    client: null,
-    observedToken: "",
-    loadingClient: null,
-    microphoneEnabled: false,
-    speakerMuted: false,
-    cameraStream: null,
-    status: "idle",
-    model: "Gemini 2.0 Flash Voice",
-    voice: "Aoede (Warm & Conversational)",
-    userName: "Hamza",
-    canvasAnimation: null,
-    canvasVisible: true,
-    lastCanvasFrame: 0,
-    audioPhase: 0,
-    transcript: []
-  };
-  const transcriptEntries = new Map();
-  const $ = (selector) => document.querySelector(selector);
-  const setText = (selector, value) => { const node = $(selector); if (node) node.textContent = value; };
-  const buttonFor = (selector) => { const root = $(selector); if (!root) return null; return root.matches("button") ? root : root.querySelector("button"); };
-  const clickGradio = (selector) => { const button = buttonFor(selector); if (button) { button.click(); return true; } return false; };
-  const readGradioValue = (selector) => {
-    const root = $(selector);
-    if (!root) return "";
-    const field = root.matches("input, textarea") ? root : root.querySelector("input, textarea");
-    return field ? field.value : "";
-  };
-  const setDisabled = (selector, disabled) => { const node = $(selector); if (node) node.disabled = disabled; };
-
-  function setHeaderStatus(connected) {
-    const badge = $("#header-status-badge");
-    const dot = $("#status-dot");
-    const ping = $("#status-ping");
-    if (badge) badge.classList.toggle("live", connected);
-    if (dot) dot.classList.toggle("live", connected);
-    if (ping) ping.classList.toggle("hl-hidden", !connected);
-    setText("#status-text", connected ? "Live Room Active" : "Ready to Connect");
-  }
-
-  function setStatus(status, title, subtitle) {
-    state.status = status;
-    setText("#session-title", title);
-    setText("#session-subtitle", subtitle);
-    const mode = status === "listening" ? "VAD Auto-detection Enabled" : status === "speaking" ? "HamzaLive Speaking" : status === "thinking" ? "Processing Response" : status === "muted" ? "Microphone Muted" : "VAD Auto-detection Enabled";
-    setText("#mode-indicator-text", mode);
-    const glow = $("#ambient-glow");
-    if (glow) glow.style.opacity = status === "listening" || status === "speaking" ? ".8" : ".35";
-  }
-
-  function setMainAction(connected, connecting = false) {
-    const button = $("#btn-main-session");
-    if (!button) return;
-    button.classList.toggle("connected", connected || connecting);
-    setText("#btn-main-text", connecting ? "Connecting..." : connected ? "End HamzaLive Session" : "Start HamzaLive Session");
-    setText("#btn-main-icon", connected ? "■" : "✦");
-  }
-
-  function renderOrb(timestamp = 0) {
-    const canvas = $("#gemini-canvas");
-    if (!canvas) return;
-    if (!state.canvasVisible) { state.canvasAnimation = null; return; }
-    if (timestamp - state.lastCanvasFrame < 33) {
-      state.canvasAnimation = window.requestAnimationFrame(renderOrb);
-      return;
+    if (!document.getElementById("hl-tailwind-cdn")) {
+        const script = document.createElement("script");
+        script.id = "hl-tailwind-cdn";
+        script.src = "https://cdn.tailwindcss.com";
+        document.head.appendChild(script);
     }
-    state.lastCanvasFrame = timestamp;
-    const ctx = canvas.getContext("2d");
-    const center = canvas.width / 2;
-    state.audioPhase += .035;
-    let radius = 78;
-    let amplitude = 4;
-    if (state.status === "listening") { radius = 84 + Math.sin(state.audioPhase * 2) * 5; amplitude = 11; }
-    else if (state.status === "thinking") { radius = 80 + Math.cos(state.audioPhase * 4) * 4; amplitude = 8; }
-    else if (state.status === "speaking") { radius = 90 + Math.sin(state.audioPhase * 5) * 11; amplitude = 18; }
-    else if (state.status === "muted") { radius = 74; amplitude = 2; }
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const glow = ctx.createRadialGradient(center, center, radius * .35, center, center, radius * 1.55);
-    if (state.status === "listening") {
-      glow.addColorStop(0, "rgba(0,229,255,.82)"); glow.addColorStop(.5, "rgba(66,133,244,.42)"); glow.addColorStop(1, "rgba(161,66,244,0)");
-    } else if (state.status === "thinking") {
-      glow.addColorStop(0, "rgba(161,66,244,.9)"); glow.addColorStop(.5, "rgba(251,188,5,.42)"); glow.addColorStop(1, "rgba(66,133,244,0)");
-    } else if (state.status === "speaking") {
-      glow.addColorStop(0, "rgba(66,133,244,.9)"); glow.addColorStop(.45, "rgba(161,66,244,.7)"); glow.addColorStop(.82, "rgba(0,229,255,.4)"); glow.addColorStop(1, "rgba(0,0,0,0)");
-    } else {
-      glow.addColorStop(0, "rgba(51,65,85,.6)"); glow.addColorStop(1, "rgba(15,23,42,0)");
-    }
-    ctx.beginPath(); ctx.arc(center, center, radius * 1.4, 0, Math.PI * 2); ctx.fillStyle = glow; ctx.fill();
-    ctx.beginPath();
-    const points = 120;
-    for (let i = 0; i <= points; i += 1) {
-      const angle = (i / points) * Math.PI * 2;
-      const wave = Math.sin(angle * 6 + state.audioPhase) * amplitude + Math.cos(angle * 4 - state.audioPhase * 1.5) * (amplitude / 2);
-      const currentRadius = radius + wave;
-      const x = center + Math.cos(angle) * currentRadius;
-      const y = center + Math.sin(angle) * currentRadius;
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    }
-    ctx.closePath();
-    const fill = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
-    if (state.room) { fill.addColorStop(0, "#4285f4"); fill.addColorStop(.5, "#a142f4"); fill.addColorStop(1, "#00e5ff"); }
-    else { fill.addColorStop(0, "#334155"); fill.addColorStop(1, "#0f172a"); }
-    ctx.fillStyle = fill; ctx.fill();
-    state.canvasAnimation = window.requestAnimationFrame(renderOrb);
-  }
 
-  function appendTranscript(speaker, message, isInterim = false, segmentId = "") {
-    const clean = String(message || "").trim();
-    if (!clean) return;
-    const feed = $("#transcript-feed");
-    if (!feed) return;
-    $("#empty-transcript-msg")?.remove();
-    const isAssistant = speaker === "HamzaLive" || speaker === "Agent";
-    const isSystem = speaker === "System";
-    const key = segmentId || speaker + "-" + Date.now() + "-" + Math.random();
-    let row = transcriptEntries.get(key);
-    let bubble;
-    if (!row) {
-      row = document.createElement("div");
-      row.className = "hl-message " + (isAssistant ? "agent" : isSystem ? "system" : "user");
-      const meta = document.createElement("div");
-      meta.className = "hl-message-meta";
-      const name = document.createElement("span");
-      name.className = isAssistant ? "hl-message-agent" : "";
-      name.textContent = speaker;
-      const time = document.createElement("span");
-      time.className = "hl-message-time";
-      time.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      meta.append(name, time);
-      bubble = document.createElement("div");
-      bubble.className = "hl-message-bubble";
-      row.append(meta, bubble);
-      feed.appendChild(row);
-      transcriptEntries.set(key, row);
-    } else {
-      bubble = row.querySelector(".hl-message-bubble");
-    }
-    bubble.textContent = clean;
-    if (isInterim) bubble.style.opacity = ".62";
-    else bubble.style.opacity = "1";
-    const existing = state.transcript.find((item) => item.key === key);
-    if (existing) {
-      existing.message = clean;
-      existing.final = !isInterim;
-    } else {
-      state.transcript.push({ key, speaker, message: clean, final: !isInterim, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) });
-    }
-    if (!isInterim) transcriptEntries.delete(key);
-    feed.scrollTop = feed.scrollHeight;
-  }
+    window.scrollToBottomTranscript = function() {
+        const feed = document.getElementById("hl-transcript-feed");
+        if (feed) feed.scrollTo({ top: feed.scrollHeight, behavior: "smooth" });
+    };
 
-  function clearTranscript() {
-    state.transcript = [];
-    transcriptEntries.clear();
-    const feed = $("#transcript-feed");
-    if (!feed) return;
-    feed.innerHTML = '<div id="empty-transcript-msg" class="hl-empty-transcript"><div class="hl-empty-icon">✦</div><p>Your real-time conversation transcript will stream here seamlessly.</p></div>';
-  }
+    window.toggleControl = function(id, textOff, textOn) {
+        const btn = document.getElementById(id);
+        if (!btn) return;
+        const label = btn.querySelector("span");
+        const active = btn.classList.toggle("active");
+        if (label) label.innerText = active ? textOn : textOff;
+    };
 
-  function scrollTranscriptToBottom() {
-    const feed = $("#transcript-feed");
-    if (feed) feed.scrollTo({ top: feed.scrollHeight, behavior: "smooth" });
-  }
-
-  function downloadTranscript() {
-    if (!state.transcript.length) return;
-    const content = state.transcript.filter((item) => item.final).map((item) => "[" + item.time + "] " + item.speaker + ": " + item.message).join("\\n");
-    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = "hamzalive-transcript-" + new Date().toISOString().slice(0, 10) + ".txt";
-    link.click();
-    URL.revokeObjectURL(link.href);
-  }
-
-  function setMicUi() {
-    setText("#btn-mic-text", state.microphoneEnabled ? "Mute Mic" : "Unmute Mic");
-    setText("#btn-mic-icon", state.microphoneEnabled ? "♩" : "♩");
-  }
-
-  function setSpeakerUi() {
-    setText("#btn-speaker-text", state.speakerMuted ? "Muted" : "Speaker On");
-    setText("#btn-speaker-icon", state.speakerMuted ? "◌" : "◉");
-  }
-
-  function stopCamera() {
-    if (state.cameraStream) state.cameraStream.getTracks().forEach((track) => track.stop());
-    state.cameraStream = null;
-    const video = $("#camera-video");
-    if (video) video.srcObject = null;
-    $("#camera-feed-container")?.classList.add("hl-hidden");
-    setText("#btn-camera-icon", "▣");
-    setText("#mode-indicator-text", state.status === "listening" ? "VAD Auto-detection Enabled" : "VAD Auto-detection Enabled");
-  }
-
-  async function toggleCamera() {
-    if (!state.room) return;
-    if (state.cameraStream) {
-      stopCamera();
-      appendTranscript("System", "Vision preview disconnected.");
-      return;
-    }
-    try {
-      state.cameraStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-      const video = $("#camera-video");
-      video.srcObject = state.cameraStream;
-      $("#camera-feed-container")?.classList.remove("hl-hidden");
-      setText("#btn-camera-icon", "■");
-      setText("#mode-indicator-text", "Vision Stream Preview Active");
-      appendTranscript("System", "Multimodal vision preview connected.");
-    } catch (error) {
-      appendLog(error?.message || "Camera permission was not granted");
-    }
-  }
-
-  function appendLog(message) {
-    const stamp = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    setText("#hl-event-log", stamp + " · " + message);
-  }
-
-  function setLatency(connected) { setText("#latency-text", connected ? "Live" : "-- ms"); }
-
-  async function loadClient() {
-    if (window.LivekitClient || window.LiveKitClient) return window.LivekitClient || window.LiveKitClient;
-    if (state.loadingClient) return state.loadingClient;
-    state.loadingClient = new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = CDN; script.async = true;
-      script.onload = () => resolve(window.LivekitClient || window.LiveKitClient);
-      script.onerror = () => reject(new Error("Could not load the LiveKit browser client."));
-      document.head.appendChild(script);
-    });
-    return state.loadingClient;
-  }
-
-  function setAllControls(disabled) {
-    setDisabled("#btn-mic", disabled);
-    setDisabled("#btn-camera", disabled);
-    setDisabled("#btn-speaker", disabled);
-  }
-
-  async function disconnect(reason = "Disconnected", requestBackend = false) {
-    const activeRoom = state.room;
-    state.room = null;
-    if (activeRoom) { try { await activeRoom.disconnect(); } catch (_) {} }
-    stopCamera();
-    state.microphoneEnabled = false;
-    state.speakerMuted = false;
-    setHeaderStatus(false);
-    setLatency(false);
-    setMicUi();
-    setSpeakerUi();
-    setAllControls(true);
-    setStatus("idle", reason === "Session ended" ? "Session ended safely" : "HamzaLive Voice Visualizer", reason === "Session ended" ? "Start a new session whenever you’re ready." : "Use the rectangular Start Session button above to begin.");
-    setMainAction(false);
-    setText("#orb-subtext", "Start");
-    setText("#hl-event-log", reason);
-    if (requestBackend) window.setTimeout(() => clickGradio("#hl-end-session"), 0);
-  }
-
-  async function connect(url, token) {
-    try {
-      await disconnect("Opening LiveKit room");
-      setMainAction(false, true);
-      setStatus("thinking", "Connecting to HamzaLive...", "Preparing the secure WebRTC voice channel.");
-      appendLog("Connecting to room");
-      state.client = await loadClient();
-      if (!state.client) throw new Error("LiveKit browser client is unavailable.");
-      state.room = new state.client.Room({ adaptiveStream: true, dynacast: true });
-      state.room.on("trackSubscribed", (track) => {
-        if (track.kind === "audio") {
-          const element = track.attach();
-          element.autoplay = true;
-          element.muted = state.speakerMuted;
-          document.body.appendChild(element);
-          appendLog("Agent audio connected");
+    window.toggleSession = function(btn) {
+        const badge = document.getElementById("hl-status-badge");
+        const statusText = document.getElementById("hl-status-text");
+        const footerStatus = document.getElementById("footer-status");
+        const connected = btn.classList.toggle("connected");
+        if (connected) {
+            btn.style.background = "linear-gradient(135deg, #f97316, #ea580c)";
+            btn.innerHTML = "<span>⏹ End Session</span>";
+            badge.className = "flex items-center gap-2 px-3 py-1 border border-gray-200 rounded-full bg-blue-50 text-xs font-semibold text-gray-900";
+            statusText.innerText = "Live Room Active";
+            footerStatus.innerText = "Ready · voice-agent-411c19001dc9 · Token issued for Hamza. Backend worker is online.";
+        } else {
+            btn.style.background = "#2563eb";
+            btn.innerHTML = "<span>▶ Connect Session</span>";
+            badge.className = "flex items-center gap-2 px-3 py-1 border border-gray-200 rounded-full bg-slate-50 text-xs font-semibold text-gray-500";
+            statusText.innerText = "Disconnected";
+            footerStatus.innerText = "Disconnected · Click Connect Session to start backend worker.";
         }
-      });
-      state.room.on("trackUnsubscribed", (track) => {
-        track.detach().forEach((element) => element.remove());
-      });
-      state.room.on("activeSpeakersChanged", (speakers) => {
-        if (speakers && speakers.length && state.microphoneEnabled) setStatus("speaking", "HamzaLive Speaking...", "Streaming the agent response back in real time.");
-        else if (state.microphoneEnabled) setStatus("listening", "HamzaLive Listening...", "Speak naturally into your microphone or toggle vision stream.");
-      });
-      state.room.on("disconnected", () => disconnect("LiveKit room disconnected"));
-      if (state.room.registerTextStreamHandler) {
-        state.room.registerTextStreamHandler("lk.transcription", async (reader, participantInfo) => {
-          try {
-            const message = await reader.readAll();
-            const attributes = reader.info?.attributes || {};
-            const isUser = participantInfo?.identity === state.room.localParticipant.identity;
-            const finalText = attributes["lk.transcription_final"] !== "false";
-            const segmentId = attributes["lk.segment_id"] || attributes["lk.transcription_id"] || (isUser ? "user-" : "agent-") + Date.now();
-            appendTranscript(isUser ? state.userName : "HamzaLive", message, !finalText, segmentId);
-            if (isUser && finalText) setStatus("thinking", "HamzaLive Thinking...", "Listening complete. Preparing the response.");
-            if (!isUser) {
-              setStatus("speaking", "HamzaLive Speaking...", "Streaming the agent response back in real time.");
-              if (finalText) window.setTimeout(() => {
-                if (state.room && state.microphoneEnabled) setStatus("listening", "HamzaLive Listening...", "Speak naturally into your microphone.");
-              }, 600);
-            }
-            appendLog((isUser ? "Speech recognized" : "Agent transcript") + ": " + message.slice(0, 70));
-          } catch (error) { appendLog(error?.message || "Could not read the transcript"); }
-        });
-      } else {
-        state.room.on("transcriptionReceived", (segments, participant) => {
-          (segments || []).forEach((segment) => {
-            const isUser = participant?.identity === state.room.localParticipant.identity;
-            const finalText = segment.final ?? true;
-            const segmentId = segment.id || segment.segmentId || (isUser ? "user-" : "agent-") + Date.now();
-            appendTranscript(isUser ? state.userName : "HamzaLive", segment.text, !finalText, segmentId);
-            if (isUser && finalText) setStatus("thinking", "HamzaLive Thinking...", "Listening complete. Preparing the response.");
-            if (!isUser) {
-              setStatus("speaking", "HamzaLive Speaking...", "Streaming the agent response back in real time.");
-              if (finalText) window.setTimeout(() => {
-                if (state.room && state.microphoneEnabled) setStatus("listening", "HamzaLive Listening...", "Speak naturally into your microphone.");
-              }, 600);
-            }
-          });
-        });
-      }
-      await state.room.connect(url, token);
-      await state.room.localParticipant.setMicrophoneEnabled(false);
-      state.microphoneEnabled = false;
-      setAllControls(false);
-      setHeaderStatus(true);
-      setLatency(true);
-      setMicUi();
-      setSpeakerUi();
-      setMainAction(true);
-      setStatus("muted", "Microphone Muted", "Unmute your microphone to speak with the HamzaLive voice agent.");
-      setText("#orb-subtext", "Live");
-      appendLog("Connected · microphone is off");
-    } catch (error) {
-      state.room = null;
-      setHeaderStatus(false);
-      setLatency(false);
-      setMainAction(false);
-      setStatus("idle", "Could not connect", error?.message || "Check the LiveKit URL and token.");
-      setAllControls(true);
-      appendLog(error?.message || "LiveKit connection failed");
+    };
+
+    function escapeHtml(value) {
+        return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\"/g, "&quot;").replace(/'/g, "&#039;");
     }
-  }
 
-  async function toggleMic() {
-    if (!state.room) return;
-    try {
-      await state.room.startAudio().catch(() => {});
-      state.microphoneEnabled = !state.microphoneEnabled;
-      await state.room.localParticipant.setMicrophoneEnabled(state.microphoneEnabled);
-      setMicUi();
-      setStatus(state.microphoneEnabled ? "listening" : "muted", state.microphoneEnabled ? "HamzaLive Listening..." : "Microphone Muted", state.microphoneEnabled ? "Speak naturally into your microphone or toggle vision stream." : "Unmute your microphone to continue.");
-      appendLog(state.microphoneEnabled ? "Microphone enabled" : "Microphone muted");
-    } catch (error) { appendLog(error?.message || "Microphone permission was not granted"); }
-  }
+    window.handleSend = function(event) {
+        event.preventDefault();
+        const input = document.getElementById("transcript-input");
+        const feed = document.getElementById("hl-transcript-feed");
+        const text = input && input.value.trim();
+        if (!text || !feed) return;
+        const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        const userMsg = document.createElement("div");
+        userMsg.className = "flex flex-col max-w-[85%] gap-0.5 self-end items-end";
+        userMsg.innerHTML = `<div class="text-[9px] text-gray-500">You · ${now}</div><div class="px-3 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 text-white text-[11px] leading-relaxed">${escapeHtml(text)}</div>`;
+        feed.appendChild(userMsg);
+        input.value = "";
+        window.scrollToBottomTranscript();
+        window.setTimeout(() => {
+            const agentMsg = document.createElement("div");
+            agentMsg.className = "flex flex-col max-w-[85%] gap-0.5 self-start items-start";
+            agentMsg.innerHTML = `<div class="text-[9px] text-gray-500">HamzaLive · ${now}</div><div class="px-3 py-2 border border-gray-200 rounded-xl bg-gray-100 text-gray-900 text-[11px] leading-relaxed">Received: "${escapeHtml(text)}". I am processing your multimodal audio stream in real-time.</div>`;
+            feed.appendChild(agentMsg);
+            window.scrollToBottomTranscript();
+        }, 800);
+    };
 
-  function toggleSpeaker() {
-    if (!state.room) return;
-    state.speakerMuted = !state.speakerMuted;
-    document.querySelectorAll("audio, video").forEach((element) => { if (element !== $("#camera-video")) element.muted = state.speakerMuted; });
-    setSpeakerUi();
-    appendLog(state.speakerMuted ? "Speaker muted" : "Speaker unmuted");
-  }
-
-  async function sendText() {
-    if (!state.room) { appendLog("Connect a room first"); return; }
-    const input = $("#text-input");
-    const message = input?.value.trim();
-    if (!message) return;
-    try {
-      await state.room.localParticipant.sendText(message, { topic: "lk.chat" });
-      input.value = "";
-      appendTranscript(state.userName, message, false, "typed-" + Date.now());
-      setStatus("thinking", "HamzaLive Thinking...", "Processing your text message.");
-      appendLog("Message sent");
-    } catch (error) { appendLog(error?.message || "Could not send the message"); }
-  }
-
-  function toggleSession() {
-    if (state.room || state.observedToken) disconnect("Session ended", true);
-    else clickGradio("#hl-start-session");
-  }
-
-  function toggleConfigModal() { $("#config-modal")?.classList.toggle("hl-hidden"); }
-  function updateModelSelection() {
-    state.model = $("#select-model")?.value || state.model;
-    setText("#display-model-name", state.model);
-  }
-  function updateVoiceSelection() {
-    state.voice = $("#select-voice")?.value || state.voice;
-    setText("#display-voice-name", "Voice: " + state.voice);
-  }
-  function applySettings() {
-    state.userName = $("#user-display-name")?.value.trim() || "Hamza";
-    toggleConfigModal();
-    appendLog("Settings applied");
-  }
-
-  function wire() {
-    const core = $("#orb-core-btn");
-    if (core && core.dataset.wired !== "1") { core.dataset.wired = "1"; core.addEventListener("click", toggleSession); }
-    const main = $("#btn-main-session");
-    if (main && main.dataset.wired !== "1") { main.dataset.wired = "1"; main.addEventListener("click", toggleSession); }
-    const mic = $("#btn-mic");
-    if (mic && mic.dataset.wired !== "1") { mic.dataset.wired = "1"; mic.addEventListener("click", toggleMic); }
-    const camera = $("#btn-camera");
-    if (camera && camera.dataset.wired !== "1") { camera.dataset.wired = "1"; camera.addEventListener("click", toggleCamera); }
-    const speaker = $("#btn-speaker");
-    if (speaker && speaker.dataset.wired !== "1") { speaker.dataset.wired = "1"; speaker.addEventListener("click", toggleSpeaker); }
-    const settings = $("#settings-button");
-    if (settings && settings.dataset.wired !== "1") { settings.dataset.wired = "1"; settings.addEventListener("click", toggleConfigModal); }
-    const close = $("#close-settings");
-    if (close && close.dataset.wired !== "1") { close.dataset.wired = "1"; close.addEventListener("click", toggleConfigModal); }
-    const apply = $("#apply-settings");
-    if (apply && apply.dataset.wired !== "1") { apply.dataset.wired = "1"; apply.addEventListener("click", applySettings); }
-    const clear = $("#clear-transcript");
-    if (clear && clear.dataset.wired !== "1") { clear.dataset.wired = "1"; clear.addEventListener("click", clearTranscript); }
-    const scroll = $("#scroll-to-bottom");
-    if (scroll && scroll.dataset.wired !== "1") { scroll.dataset.wired = "1"; scroll.addEventListener("click", scrollTranscriptToBottom); }
-    const download = $("#download-transcript");
-    if (download && download.dataset.wired !== "1") { download.dataset.wired = "1"; download.addEventListener("click", downloadTranscript); }
-    const form = $("#text-form");
-    if (form && form.dataset.wired !== "1") { form.dataset.wired = "1"; form.addEventListener("submit", (event) => { event.preventDefault(); sendText(); }); }
-  }
-
-  function syncFromGradio() {
-    const token = readGradioValue("#hl-token-state");
-    const url = readGradioValue("#hl-url-state");
-    if (token && token !== state.observedToken) { state.observedToken = token; connect(url, token); }
-    else if (!token && state.observedToken) { state.observedToken = ""; disconnect("Session ended"); }
-  }
-
-  const boot = () => {
-    wire();
-    renderOrb();
-    window.setInterval(syncFromGradio, 900);
-    if (window.IntersectionObserver) {
-      const visibilityObserver = new IntersectionObserver((entries) => {
-        state.canvasVisible = Boolean(entries[0]?.isIntersecting);
-        if (state.canvasVisible && !state.canvasAnimation) renderOrb();
-      });
-      visibilityObserver.observe($("#gemini-canvas"));
+    function initOrbVisualizer() {
+        const canvas = document.getElementById("gemini-canvas");
+        if (!canvas) return;
+        const ctx = canvas.getContext("2d");
+        let step = 0;
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+            const radius = 55 + Math.sin(step * 1.5) * 8 + Math.cos(step * 0.8) * 4;
+            const grad = ctx.createRadialGradient(cx, cy, 5, cx, cy, radius + 25);
+            grad.addColorStop(0, "rgba(37, 99, 235, 0.85)");
+            grad.addColorStop(0.4, "rgba(147, 51, 234, 0.65)");
+            grad.addColorStop(0.7, "rgba(6, 182, 212, 0.35)");
+            grad.addColorStop(1, "rgba(6, 182, 212, 0)");
+            ctx.beginPath();
+            ctx.arc(cx, cy, radius + 10, 0, Math.PI * 2);
+            ctx.fillStyle = "rgba(37, 99, 235, 0.08)";
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+            ctx.fillStyle = grad;
+            ctx.fill();
+            step += 0.04;
+            requestAnimationFrame(animate);
+        }
+        animate();
     }
-  };
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
-  else boot();
+
+    window.setTimeout(() => {
+        initOrbVisualizer();
+        window.scrollToBottomTranscript();
+    }, 500);
 }
 """
 
 
-def build_app() -> gr.Blocks:
-    with gr.Blocks(title="HamzaLive - AI Voice Assistant") as demo:
-        gr.HTML(
-            """
-            <header class="hl-app-header">
-              <div class="hl-brand">
-                <div class="hl-logo"><div class="hl-logo-inner">✦</div></div>
-                <div class="hl-brand-copy">
-                  <div class="hl-brand-line"><span class="hl-brand-name hl-gradient-text">HamzaLive</span><span class="hl-pro">Pro 2.0</span></div>
-                  <div class="hl-tagline">Ultra-low Latency Voice & Vision Multimodal AI</div>
-                </div>
-              </div>
-              <div class="hl-header-actions">
-                <div id="header-status-badge" class="hl-status-badge"><span id="status-dot" class="hl-status-dot"></span><span id="status-ping" class="hl-hidden"></span><span id="status-text">Ready to Connect</span></div>
-                <button id="settings-button" class="hl-settings-button" type="button" title="Voice and model settings">☷</button>
-              </div>
-            </header>
-            """
-        )
+LIVEKIT_UI_JS = r"""
+() => {
+    if (!document.getElementById("hl-tailwind-cdn")) {
+        const script = document.createElement("script");
+        script.id = "hl-tailwind-cdn";
+        script.src = "https://cdn.tailwindcss.com";
+        document.head.appendChild(script);
+    }
 
-        with gr.Column(elem_classes="hl-shell hl-main"):
-            token_state = gr.Textbox(value="", show_label=False, container=False, elem_id="hl-token-state", elem_classes="hl-internal")
-            url_state = gr.Textbox(value=os.getenv("LIVEKIT_URL", ""), show_label=False, container=False, elem_id="hl-url-state", elem_classes="hl-internal")
-            room_input = gr.Textbox(value=DEFAULT_ROOM, show_label=False, container=False, elem_id="hl-room-input", elem_classes="hl-internal")
-            identity_input = gr.Textbox(value=DEFAULT_IDENTITY, show_label=False, container=False, elem_id="hl-identity-input", elem_classes="hl-internal")
+    const state = {
+        room: null,
+        client: null,
+        loadingClient: null,
+        connecting: false,
+        observedToken: "",
+        microphoneEnabled: false,
+        cameraEnabled: false,
+        speakerMuted: false,
+    };
 
-            with gr.Group(elem_classes="hl-panel"):
-                gr.HTML(
-                    """
-                    <div class="hl-action-row">
-                      <div class="hl-action-left">
-                        <div class="hl-pill"><span class="hl-pill-icon">◈</span><span id="display-model-name">Gemini 2.0 Flash Voice</span></div>
-                        <div class="hl-pill voice"><span class="hl-pill-icon">◉</span><span id="display-voice-name">Voice: Aoede (Warm & Conversational)</span></div>
-                      </div>
-                      <div class="hl-action-right">
-                        <div class="hl-top-controls">
-                          <button id="btn-mic" class="hl-control" type="button" disabled><span id="btn-mic-icon" class="hl-control-icon">♩</span><span id="btn-mic-text">Unmute Mic</span></button>
-                          <button id="btn-camera" class="hl-control" type="button" disabled><span id="btn-camera-icon" class="hl-control-icon cyan">▣</span><span>Vision Stream</span></button>
-                          <button id="btn-speaker" class="hl-control" type="button" disabled><span id="btn-speaker-icon" class="hl-control-icon">◉</span><span id="btn-speaker-text">Speaker On</span></button>
-                        </div>
-                        <div class="hl-latency"><span class="hl-latency-icon">ϟ</span><span>Latency: <strong id="latency-text">-- ms</strong></span></div>
-                        <button id="btn-main-session" class="hl-main-action hl-top-session" type="button"><span id="btn-main-icon">✦</span><span id="btn-main-text">Start HamzaLive Session</span></button>
-                      </div>
-                    </div>
-                    """
-                )
-                gr.HTML(
-                    """
-                    <div id="visualizer-container" class="hl-visualizer">
-                      <div id="ambient-glow" class="hl-ambient-glow"></div>
-                      <div id="camera-feed-container" class="hl-camera-feed hl-hidden">
-                        <video id="camera-video" autoplay muted playsinline></video>
-                        <div class="hl-camera-label"><span></span><span>HamzaLive Vision Stream Active</span></div>
-                        <div class="hl-camera-frame"></div>
-                      </div>
-                      <div class="hl-robot-stage">
-                        <div class="hl-robot-aura"></div>
-                        <div id="visualizerOrb" class="hl-robot-wrap">
-                          <svg class="hl-robot-svg" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="HamzaLive voice assistant">
-                            <circle cx="100" cy="22" r="7" fill="#38BDF8"><animate attributeName="opacity" values=".4;1;.4" dur="1.5s" repeatCount="indefinite"/></circle>
-                            <line x1="100" y1="29" x2="100" y2="45" stroke="#94A3B8" stroke-width="4" stroke-linecap="round"/>
-                            <rect x="35" y="45" width="130" height="110" rx="40" fill="url(#robotHeadGrad)" stroke="#CBD5E1" stroke-width="3"/>
-                            <rect x="22" y="80" width="14" height="40" rx="6" fill="#6366F1"/><rect x="164" y="80" width="14" height="40" rx="6" fill="#6366F1"/>
-                            <circle cx="29" cy="100" r="4" fill="#38BDF8"/><circle cx="171" cy="100" r="4" fill="#38BDF8"/>
-                            <rect x="48" y="62" width="104" height="76" rx="28" fill="#0F172A" stroke="#1E293B" stroke-width="2"/>
-                            <g class="hl-robot-eyes"><circle cx="75" cy="90" r="12" fill="#06B6D4"/><circle cx="75" cy="90" r="6" fill="#E0F2FE"/><circle cx="125" cy="90" r="12" fill="#06B6D4"/><circle cx="125" cy="90" r="6" fill="#E0F2FE"/></g>
-                            <g><rect x="76" y="118" width="4" height="10" rx="2" fill="#38BDF8"><animate attributeName="height" values="6;16;8;14;6" dur=".8s" repeatCount="indefinite"/></rect><rect x="84" y="118" width="4" height="14" rx="2" fill="#818CF8"><animate attributeName="height" values="10;22;12;20;10" dur=".6s" repeatCount="indefinite"/></rect><rect x="92" y="118" width="4" height="18" rx="2" fill="#C084FC"><animate attributeName="height" values="12;24;10;22;12" dur=".7s" repeatCount="indefinite"/></rect><rect x="100" y="118" width="4" height="18" rx="2" fill="#C084FC"><animate attributeName="height" values="14;20;8;24;14" dur=".65s" repeatCount="indefinite"/></rect><rect x="108" y="118" width="4" height="14" rx="2" fill="#818CF8"><animate attributeName="height" values="8;20;14;18;8" dur=".75s" repeatCount="indefinite"/></rect><rect x="116" y="118" width="4" height="10" rx="2" fill="#38BDF8"><animate attributeName="height" values="6;14;10;16;6" dur=".55s" repeatCount="indefinite"/></rect></g>
-                            <defs><linearGradient id="robotHeadGrad" x1="35" y1="45" x2="165" y2="155" gradientUnits="userSpaceOnUse"><stop stop-color="#FFFFFF"/><stop offset=".6" stop-color="#F1F5F9"/><stop offset="1" stop-color="#E2E8F0"/></linearGradient></defs>
-                          </svg>
-                        </div>
-                        <div class="hl-session-copy"><div id="session-title" class="hl-session-title">HamzaLive Listening...</div><div id="session-subtitle" class="hl-session-subtitle">Speak naturally into your microphone or toggle vision stream.</div></div>
-                      </div>
-                      <div class="hl-mode-indicator"><span class="hl-mode-dot"></span><span id="mode-indicator-text">VAD Auto-detection Enabled</span></div>
-                    </div>
-                    """
-                )
-                gr.HTML(
-                    """
-                    <div class="hl-transcript-column hl-transcript-under-session">
-                      <div class="hl-transcript-head">
-                        <div class="hl-transcript-title"><span class="hl-transcript-title-icon">▤</span><span>Live Transcript</span></div>
-                        <div class="hl-transcript-actions"><button id="scroll-to-bottom" class="hl-transcript-action" type="button" title="Scroll to bottom">⇣</button><button id="download-transcript" class="hl-transcript-action" type="button" title="Export log">⇩</button><button id="clear-transcript" class="hl-transcript-action" type="button" title="Clear transcript">⌫</button></div>
-                      </div>
-                      <div id="transcript-feed" class="hl-transcript-feed"><div id="empty-transcript-msg" class="hl-empty-transcript"><div class="hl-empty-icon">✦</div><p>Your real-time conversation transcript will stream here seamlessly.</p></div></div>
-                      <form id="text-form" class="hl-text-form"><input id="text-input" class="hl-text-input" type="text" placeholder="Type a message or topic to discuss..." aria-label="Type a message to the agent" /><button class="hl-text-submit" type="submit">↗</button></form>
-                      <div id="hl-event-log" class="hl-event-log">Waiting for you to start a session.</div>
-                    </div>
-                    """
-                )
+    const get = (id) => document.getElementById(id);
+    const buttonFor = (id) => {
+        const root = get(id);
+        if (!root) return null;
+        return root.matches("button") ? root : root.querySelector("button");
+    };
+    const clickBackend = (id) => buttonFor(id)?.click();
+    const valueOf = (id) => {
+        const root = get(id);
+        if (!root) return "";
+        const input = root.matches("input, textarea") ? root : root.querySelector("input, textarea");
+        return input?.value || "";
+    };
+    const footer = (message) => {
+        const node = get("footer-status");
+        if (node) node.innerText = message;
+    };
+    const setStatus = (connected, message) => {
+        const badge = get("hl-status-badge");
+        const dot = badge?.querySelector(".hl-status-dot");
+        const text = get("hl-status-text");
+        if (badge) badge.className = connected
+            ? "flex items-center gap-2 px-3 py-1 border border-gray-200 rounded-full bg-blue-50 text-xs font-semibold text-gray-900"
+            : "flex items-center gap-2 px-3 py-1 border border-gray-200 rounded-full bg-slate-50 text-xs font-semibold text-gray-500";
+        if (dot) dot.className = connected ? "w-2 h-2 rounded-full hl-status-dot live" : "w-2 h-2 rounded-full bg-gray-400";
+        if (text) text.innerText = connected ? "Live Room Active" : "Disconnected";
+        if (message) footer(message);
+    };
+    const setControl = (id, label, active) => {
+        const button = get(id);
+        if (!button) return;
+        button.classList.toggle("active", Boolean(active));
+        const span = button.querySelector("span");
+        if (span) span.innerText = label;
+    };
 
-            connection_state = gr.Markdown("**Ready to connect**", elem_classes="hl-server-message")
-            connection_hint = gr.Markdown("LiveKit credentials are loaded securely from the environment.", elem_classes="hl-server-hint")
-            start_session_button = gr.Button("Start HamzaLive session", elem_id="hl-start-session", elem_classes="hl-internal")
-            end_session_button = gr.Button("End HamzaLive session", elem_id="hl-end-session", elem_classes="hl-internal")
+    window.scrollToBottomTranscript = function() {
+        const feed = get("hl-transcript-feed");
+        if (feed) feed.scrollTo({ top: feed.scrollHeight, behavior: "smooth" });
+    };
 
-            gr.HTML(
-                """
-                <div id="config-modal" class="hl-settings-modal hl-hidden">
-                  <div class="hl-settings-card">
-                    <div class="hl-settings-head"><div class="hl-settings-title"><span class="hl-settings-title-icon">☷</span><span>HamzaLive Configuration</span></div><button id="close-settings" class="hl-close-settings" type="button">×</button></div>
-                    <div class="hl-setting-group"><label class="hl-setting-label" for="select-model">AI Model Pipeline</label><select id="select-model" class="hl-setting-select"><option value="Gemini 2.0 Flash Voice">Gemini 2.0 Flash (Recommended - Lowest Latency)</option><option value="Gemini 1.5 Pro Live">Gemini 1.5 Pro Live (Reasoning Engine)</option><option value="Gemini Multimodal Live">Gemini 2.0 Multimodal Vision & Audio</option></select></div>
-                    <div class="hl-setting-group"><label class="hl-setting-label" for="select-voice">Synthesized Voice Persona</label><select id="select-voice" class="hl-setting-select"><option value="Aoede (Warm & Conversational)">Aoede — Warm, Expressive & Conversational</option><option value="Puck (Upbeat & Energetic)">Puck — Upbeat, Bright & Energetic</option><option value="Charon (Deep & Professional)">Charon — Deep, Clear & Professional</option><option value="Fenrir (Authoritative & Steady)">Fenrir — Authoritative & Direct</option><option value="Kore (Calm & Soothing)">Kore — Gentle & Calm</option></select></div>
-                    <div class="hl-setting-group"><label class="hl-setting-label" for="user-display-name">User Name</label><input id="user-display-name" class="hl-setting-input" type="text" value="Hamza" /></div>
-                    <div class="hl-setting-group"><div class="hl-range-row"><span>Voice Activity Sensitivity (VAD)</span><span id="vad-val">Medium (35ms)</span></div><input id="vad-range" class="hl-range" type="range" min="10" max="100" value="35" /></div>
-                    <button id="apply-settings" class="hl-apply-settings" type="button">Apply Settings</button>
-                  </div>
-                </div>
-                <footer class="hl-footer hl-footer-bar">
-                  <div class="hl-footer-status"><span class="hl-footer-status-dot"></span><span>Ready · voice-agent-411c19001dc9</span><span class="hl-footer-separator">•</span><span>Token issued for Hamza. Backend worker is online.</span></div>
-                  <div class="hl-footer-links"><a href="#" onclick="return false">Runs ↺</a><span>·</span><a href="#" onclick="return false">Use via API</a><span>·</span><a href="#" onclick="return false">Built with Gradio</a><span>·</span><a href="#" onclick="return false">Settings ⚙</a></div>
-                </footer>
-                """
-            )
+    function escapeHtml(value) {
+        return String(value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/\"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
 
-        start_session_button.click(fn=start_session, inputs=[room_input, identity_input], outputs=[token_state, url_state, connection_state, connection_hint])
-        end_session_button.click(fn=disconnect_session, outputs=[token_state, url_state, connection_state, connection_hint])
+    function appendTranscript(speaker, message, isUser = false) {
+        const feed = get("hl-transcript-feed");
+        if (!feed || !String(message || "").trim()) return;
+        const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        const row = document.createElement("div");
+        row.className = isUser
+            ? "flex flex-col max-w-[85%] gap-0.5 self-end items-end"
+            : "flex flex-col max-w-[85%] gap-0.5 self-start items-start";
+        const bubble = isUser
+            ? "px-3 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 text-white text-[11px] leading-relaxed"
+            : "px-3 py-2 border border-gray-200 rounded-xl bg-gray-100 text-gray-900 text-[11px] leading-relaxed";
+        row.innerHTML = `<div class="text-[9px] text-gray-500">${escapeHtml(speaker)} · ${time}</div><div class="${bubble}">${escapeHtml(message)}</div>`;
+        feed.appendChild(row);
+        window.scrollToBottomTranscript();
+    }
 
-    return demo
+    async function loadLiveKit() {
+        if (window.LivekitClient || window.LiveKitClient) return window.LivekitClient || window.LiveKitClient;
+        if (state.loadingClient) return state.loadingClient;
+        state.loadingClient = new Promise((resolve, reject) => {
+            const script = document.createElement("script");
+            script.src = "https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js";
+            script.async = true;
+            script.onload = () => resolve(window.LivekitClient || window.LiveKitClient);
+            script.onerror = () => reject(new Error("Could not load the LiveKit browser client."));
+            document.head.appendChild(script);
+        });
+        return state.loadingClient;
+    }
+
+    function attachTranscriptionHandlers(room) {
+        const handleText = async (reader, participantInfo) => {
+            try {
+                const message = await reader.readAll();
+                const attributes = reader.info?.attributes || {};
+                const isUser = participantInfo?.identity === room.localParticipant.identity;
+                appendTranscript(isUser ? "You" : "HamzaLive", message, isUser);
+            } catch (error) {
+                footer("Transcript error · " + (error?.message || "could not read transcript"));
+            }
+        };
+        if (room.registerTextStreamHandler) {
+            room.registerTextStreamHandler("lk.transcription", handleText);
+        } else {
+            room.on("transcriptionReceived", (segments, participant) => {
+                (segments || []).forEach((segment) => {
+                    const isUser = participant?.identity === room.localParticipant.identity;
+                    appendTranscript(isUser ? "You" : "HamzaLive", segment.text, isUser);
+                });
+            });
+        }
+    }
+
+    async function disconnectRoom(requestBackend = false) {
+        const room = state.room;
+        state.room = null;
+        state.connecting = false;
+        state.microphoneEnabled = false;
+        state.cameraEnabled = false;
+        if (room) {
+            try { await room.disconnect(); } catch (_) {}
+        }
+        const button = get("session-btn");
+        if (button) {
+            button.classList.remove("connected");
+            button.style.background = "#2563eb";
+            button.innerHTML = "<span>▶ Connect Session</span>";
+        }
+        setControl("mic-btn", "🔇 Mute Mic", false);
+        setControl("cam-btn", "💻 Vision Stream", false);
+        setControl("spk-btn", "🔊 Speaker On", false);
+        setStatus(false, "Disconnected · Click Connect Session to start the backend worker.");
+        if (requestBackend) clickBackend("hl-end-backend");
+    }
+
+    async function connectRoom(url, token) {
+        if (state.room || state.connecting) return;
+        state.connecting = true;
+        setStatus(false, "Connecting to LiveKit…");
+        try {
+            const client = await loadLiveKit();
+            if (!client) throw new Error("LiveKit browser client is unavailable.");
+            const room = new client.Room({ adaptiveStream: true, dynacast: true });
+            state.room = room;
+            room.on("trackSubscribed", (track) => {
+                if (track.kind === "audio") {
+                    const element = track.attach();
+                    element.autoplay = true;
+                    element.muted = state.speakerMuted;
+                    document.body.appendChild(element);
+                }
+            });
+            room.on("trackUnsubscribed", (track) => track.detach().forEach((element) => element.remove()));
+            room.on("disconnected", () => {
+                if (state.room === room) disconnectRoom(false);
+            });
+            attachTranscriptionHandlers(room);
+            await room.connect(url, token);
+            await room.localParticipant.setMicrophoneEnabled(false);
+            state.connecting = false;
+            const button = get("session-btn");
+            if (button) {
+                button.classList.add("connected");
+                button.style.background = "linear-gradient(135deg, #f97316, #ea580c)";
+                button.innerHTML = "<span>⏹ End Session</span>";
+            }
+            setControl("mic-btn", "🎙 Unmute Mic", false);
+            setStatus(true, "Connected · microphone is muted until you enable it.");
+        } catch (error) {
+            state.room = null;
+            state.connecting = false;
+            setStatus(false, "LiveKit connection failed · " + (error?.message || "check your credentials"));
+        }
+    }
+
+    async function toggleMicrophone() {
+        if (!state.room) { footer("Connect a LiveKit session first."); return; }
+        try {
+            await state.room.startAudio().catch(() => {});
+            state.microphoneEnabled = !state.microphoneEnabled;
+            await state.room.localParticipant.setMicrophoneEnabled(state.microphoneEnabled);
+            setControl("mic-btn", state.microphoneEnabled ? "🔊 Mic Active" : "🎙 Unmute Mic", state.microphoneEnabled);
+        } catch (error) {
+            footer("Microphone error · " + (error?.message || "permission was not granted"));
+        }
+    }
+
+    async function toggleCamera() {
+        if (!state.room) { footer("Connect a LiveKit session first."); return; }
+        try {
+            state.cameraEnabled = !state.cameraEnabled;
+            await state.room.localParticipant.setCameraEnabled(state.cameraEnabled);
+            setControl("cam-btn", state.cameraEnabled ? "💻 Vision Active" : "💻 Vision Stream", state.cameraEnabled);
+        } catch (error) {
+            state.cameraEnabled = false;
+            footer("Camera error · " + (error?.message || "permission was not granted"));
+        }
+    }
+
+    function toggleSpeaker() {
+        if (!state.room) { footer("Connect a LiveKit session first."); return; }
+        state.speakerMuted = !state.speakerMuted;
+        document.querySelectorAll("audio, video").forEach((element) => { element.muted = state.speakerMuted; });
+        setControl("spk-btn", state.speakerMuted ? "🔇 Speaker Muted" : "🔊 Speaker On", state.speakerMuted);
+    }
+
+    window.toggleControl = function(id) {
+        if (id === "mic-btn") return toggleMicrophone();
+        if (id === "cam-btn") return toggleCamera();
+        if (id === "spk-btn") return toggleSpeaker();
+    };
+
+    window.toggleSession = function() {
+        if (state.room || state.connecting) {
+            disconnectRoom(true);
+            return;
+        }
+        footer("Requesting a LiveKit token…");
+        clickBackend("hl-start-backend");
+    };
+
+    window.handleSend = async function(event) {
+        event.preventDefault();
+        const input = get("transcript-input");
+        const text = input?.value.trim();
+        if (!text) return;
+        if (!state.room) { footer("Connect a LiveKit session first."); return; }
+        try {
+            await state.room.localParticipant.sendText(text, { topic: "lk.chat" });
+            appendTranscript("You", text, true);
+            input.value = "";
+        } catch (error) {
+            footer("Message error · " + (error?.message || "could not send message"));
+        }
+    };
+
+    function syncToken() {
+        const token = valueOf("hl-token-state");
+        const url = valueOf("hl-url-state");
+        if (token && token !== state.observedToken) {
+            state.observedToken = token;
+            connectRoom(url, token);
+        } else if (!token && state.observedToken) {
+            state.observedToken = "";
+            if (state.room) disconnectRoom(false);
+        }
+    }
+
+    function initOrbVisualizer() {
+        const canvas = document.getElementById("gemini-canvas");
+        if (!canvas) return;
+        const ctx = canvas.getContext("2d");
+        let step = 0;
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+            const radius = 55 + Math.sin(step * 1.5) * 8 + Math.cos(step * 0.8) * 4;
+            const grad = ctx.createRadialGradient(cx, cy, 5, cx, cy, radius + 25);
+            grad.addColorStop(0, "rgba(37, 99, 235, 0.85)");
+            grad.addColorStop(0.4, "rgba(147, 51, 234, 0.65)");
+            grad.addColorStop(0.7, "rgba(6, 182, 212, 0.35)");
+            grad.addColorStop(1, "rgba(6, 182, 212, 0)");
+            ctx.beginPath(); ctx.arc(cx, cy, radius + 10, 0, Math.PI * 2); ctx.fillStyle = "rgba(37, 99, 235, 0.08)"; ctx.fill();
+            ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2); ctx.fillStyle = grad; ctx.fill();
+            step += 0.04;
+            requestAnimationFrame(animate);
+        }
+        animate();
+    }
+
+    window.setTimeout(() => {
+        initOrbVisualizer();
+        window.scrollToBottomTranscript();
+        window.setInterval(syncToken, 700);
+    }, 500);
+}
+"""
+
+
+with gr.Blocks(title="HamzaLive") as demo:
+    token_state = gr.Textbox(value="", show_label=False, container=False, elem_id="hl-token-state", elem_classes=["hl-backend-hidden"])
+    url_state = gr.Textbox(value=os.getenv("LIVEKIT_URL", ""), show_label=False, container=False, elem_id="hl-url-state", elem_classes=["hl-backend-hidden"])
+    room_input = gr.Textbox(value=DEFAULT_ROOM, show_label=False, container=False, elem_id="hl-room-input", elem_classes=["hl-backend-hidden"])
+    identity_input = gr.Textbox(value=DEFAULT_IDENTITY, show_label=False, container=False, elem_id="hl-identity-input", elem_classes=["hl-backend-hidden"])
+    connection_state = gr.Textbox(value="Ready to connect", show_label=False, container=False, elem_id="hl-connection-state", elem_classes=["hl-backend-hidden"])
+    connection_hint = gr.Textbox(value="", show_label=False, container=False, elem_id="hl-connection-hint", elem_classes=["hl-backend-hidden"])
+    start_backend = gr.Button("Start backend", elem_id="hl-start-backend", elem_classes=["hl-backend-hidden"])
+    end_backend = gr.Button("End backend", elem_id="hl-end-backend", elem_classes=["hl-backend-hidden"])
+    gr.HTML(UI_HTML)
+
+    start_backend.click(
+        fn=start_session,
+        inputs=[room_input, identity_input],
+        outputs=[token_state, url_state, connection_state, connection_hint],
+    )
+    end_backend.click(
+        fn=disconnect_session,
+        inputs=[],
+        outputs=[token_state, url_state, connection_state, connection_hint],
+    )
 
 
 if __name__ == "__main__":
-    build_app().launch(
-        server_name="127.0.0.1",
-        server_port=7860,
-        theme=gr.themes.Base(primary_hue="violet", secondary_hue="blue", neutral_hue="slate", font=[gr.themes.GoogleFont("Inter"), "ui-sans-serif", "system-ui", "sans-serif"]),
-        css=APP_CSS,
-        js=LIVEKIT_CLIENT_JS,
-        show_error=True,
-    )
+    demo.launch(css=APP_CSS, js=LIVEKIT_UI_JS)

@@ -39,6 +39,21 @@ class Assistant(Agent):
 server = AgentServer()
 
 
+def _remove_unavailable_local_proxy() -> None:
+    """Avoid routing LiveKit Cloud through the dead sandbox proxy."""
+
+    blocked_values = {"http://127.0.0.1:9", "http://localhost:9"}
+    proxy_keys = (
+        "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
+        "http_proxy", "https_proxy", "all_proxy",
+    )
+    if any(os.getenv(key, "").strip().lower() in blocked_values for key in proxy_keys):
+        for key in proxy_keys:
+            os.environ.pop(key, None)
+        os.environ["NO_PROXY"] = "*"
+        os.environ["no_proxy"] = "*"
+
+
 @server.rtc_session(agent_name=AGENT_NAME)
 async def my_agent(ctx: agents.JobContext) -> None:
     """Start the configured speech-to-speech pipeline for one room."""
@@ -77,4 +92,5 @@ if __name__ == "__main__":
     # default as start makes python agent.py convenient locally.
     if len(sys.argv) == 1:
         sys.argv.append("start")
+    _remove_unavailable_local_proxy()
     agents.cli.run_app(server)
