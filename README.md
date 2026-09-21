@@ -269,16 +269,21 @@ The microphone is intentionally muted when the room first connects. This prevent
 - Connects the browser to LiveKit.
 - Publishes microphone audio after permission is granted.
 - Plays subscribed agent audio in the browser.
+- Displays live speech-to-text and agent response transcripts.
+- Provides separate microphone mute and speaker mute controls.
+- Provides an end-call control that disconnects the browser session.
+- Supports typed messages through the `lk.chat` LiveKit text stream.
 - Shows connection, participant, and activity information.
-- Provides optional LiveKit data signals.
 - Stops the managed worker when **End session** is clicked.
 - Provides advanced worker controls for starting, restarting, or stopping the worker separately.
 
 The browser-side LiveKit client requires internet access to load the CDN script. The LiveKit URL and API credentials must also be valid.
 
-### Optional data signals
+### Typed chat and transcript
 
-The **Send signal** field publishes a LiveKit data message with the topic `gradio.command`. The current `agent.py` is configured primarily for voice input and does not define a text/data-message handler, so voice is the supported way to talk with the agent.
+The **Send message** field sends text through the `lk.chat` LiveKit text stream. LiveKit Agents automatically accepts this text input and generates a response. The browser listens to the `lk.transcription` text stream to show both user speech-to-text and agent response text in the live transcript.
+
+The microphone is muted when a session starts. Use **Unmute microphone** and **Mute microphone** to control speech input, **Mute speaker** to silence agent audio, and **End call** or **End session** to disconnect.
 
 ## 7. Understanding `agent.py`
 

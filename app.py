@@ -272,6 +272,21 @@ body, .gradio-container { background: var(--canvas) !important; color: var(--ink
 .data-row input:focus { border-color: #9cb5fa; box-shadow: 0 0 0 3px rgba(52,103,245,.09); }
 .data-row button { border: 0; border-radius: 9px; padding: 10px 13px; color: #fff; background: #152847; font-size: 12px; font-weight: 750; cursor: pointer; }
 .event-log { margin-top: 17px; height: 29px; color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.transcript-panel { margin-top: 18px; border: 1px solid #e4ebf6; border-radius: 13px; background: #fbfcff; overflow: hidden; }
+.transcript-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-bottom: 1px solid #e8edf5; }
+.transcript-title { color: var(--ink); font-size: 12px; font-weight: 800; }
+.transcript-caption { color: var(--muted); font-size: 10px; margin-top: 3px; }
+.transcript-clear { border: 0; color: #58709a; background: transparent; font-size: 10px; font-weight: 750; cursor: pointer; }
+.transcript-list { display: flex; flex-direction: column; gap: 9px; min-height: 73px; max-height: 190px; overflow-y: auto; padding: 12px 14px; }
+.transcript-empty { display: grid; place-items: center; min-height: 48px; color: #91a0b5; font-size: 11px; text-align: center; }
+.transcript-entry { display: flex; flex-direction: column; max-width: 85%; }
+.transcript-entry.user { align-self: flex-end; align-items: flex-end; }
+.transcript-entry.agent { align-self: flex-start; align-items: flex-start; }
+.transcript-speaker { color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; margin: 0 4px 4px; }
+.transcript-bubble { color: var(--ink); background: #fff; border: 1px solid #e1e8f3; border-radius: 11px 11px 11px 3px; padding: 8px 10px; font-size: 12px; line-height: 1.42; white-space: pre-wrap; word-break: break-word; }
+.transcript-entry.user .transcript-bubble { color: #fff; border-color: var(--accent); background: var(--accent); border-radius: 11px 11px 3px 11px; }
+.transcript-entry.interim .transcript-bubble { opacity: .68; font-style: italic; }
+.call-control:disabled { opacity: .45; cursor: not-allowed !important; transform: none !important; }
 .right-stack { gap: 18px; }
 .control-surface { padding: 22px; }
 .control-title { color: var(--ink); font-size: 16px; font-weight: 750; margin-bottom: 5px; }
@@ -311,9 +326,63 @@ LIVEKIT_CLIENT_JS = f"""
   let observedToken = "";
   let loadingClient = null;
   let microphoneEnabled = false;
+  let speakerMuted = false;
+  const transcriptEntries = new Map();
 
   const $ = (selector) => document.querySelector(selector);
   const setText = (selector, text) => {{ const node = $(selector); if (node) node.textContent = text; }};
+
+  function setControlDisabled(selector, disabled) {{
+    const control = $(selector);
+    if (control) control.disabled = disabled;
+  }}
+
+  function clearTranscript() {{
+    transcriptEntries.clear();
+    const list = $("#lk-transcript-list");
+    if (!list) return;
+    list.replaceChildren();
+    const empty = document.createElement("div");
+    empty.id = "lk-transcript-empty";
+    empty.className = "transcript-empty";
+    empty.textContent = "Your conversation will appear here.";
+    list.appendChild(empty);
+  }}
+
+  function appendTranscript(text, isUser, isFinal = true, segmentId = "") {{
+    const cleanText = String(text || "").trim();
+    if (!cleanText) return;
+    const list = $("#lk-transcript-list");
+    if (!list) return;
+    $("#lk-transcript-empty")?.remove();
+    const role = isUser ? "user" : "agent";
+    const key = segmentId || `${{role}}-${{Date.now()}}-${{Math.random()}}`;
+    let entry = transcriptEntries.get(key);
+    if (!entry) {{
+      const wrapper = document.createElement("div");
+      wrapper.className = `transcript-entry ${{role}}`;
+      const speaker = document.createElement("div");
+      speaker.className = "transcript-speaker";
+      speaker.textContent = isUser ? "You" : "Agent";
+      const bubble = document.createElement("div");
+      bubble.className = "transcript-bubble";
+      wrapper.append(speaker, bubble);
+      list.appendChild(wrapper);
+      entry = {{ wrapper, bubble }};
+      transcriptEntries.set(key, entry);
+    }}
+    entry.bubble.textContent = cleanText;
+    entry.wrapper.classList.toggle("interim", !isFinal);
+    if (isFinal) transcriptEntries.delete(key);
+    list.scrollTop = list.scrollHeight;
+  }}
+
+  function setSpeakerMuted(muted) {{
+    speakerMuted = muted;
+    $("#lk-audio-sink")?.querySelectorAll("audio, video").forEach((element) => {{ element.muted = muted; }});
+    const button = $("#lk-speaker-button");
+    if (button) button.textContent = muted ? "Unmute speaker" : "Mute speaker";
+  }}
 
   function readGradioValue(selector) {{
     const root = $(selector);
@@ -371,7 +440,9 @@ LIVEKIT_CLIENT_JS = f"""
     room = null;
     if (activeRoom) {{ try {{ activeRoom.disconnect(); }} catch (_) {{}} }}
     microphoneEnabled = false;
+    speakerMuted = false;
     clearAudio();
+    clearTranscript();
     const ended = reason === "Session ended";
     setConsoleState(ended ? "Session ended" : "Ready to start", false);
     setConsoleCopy(
@@ -381,7 +452,12 @@ LIVEKIT_CLIENT_JS = f"""
     updateParticipantCount();
     appendLog(reason);
     const mic = $("#lk-mic-button");
-    if (mic) {{ mic.textContent = "Enable microphone"; mic.classList.remove("primary"); }}
+    if (mic) {{ mic.textContent = "Unmute microphone"; mic.classList.remove("primary"); }}
+    const speaker = $("#lk-speaker-button");
+    if (speaker) speaker.textContent = "Mute speaker";
+    setControlDisabled("#lk-mic-button", true);
+    setControlDisabled("#lk-speaker-button", true);
+    setControlDisabled("#lk-disconnect-button", true);
     const orb = $("#lk-voice-orb");
     if (orb) orb.classList.remove("speaking");
   }}
@@ -399,6 +475,7 @@ LIVEKIT_CLIENT_JS = f"""
         if (track.kind === "audio") {{
           const element = track.attach();
           element.autoplay = true;
+          element.muted = speakerMuted;
           $("#lk-audio-sink")?.appendChild(element);
           appendLog("Agent audio connected");
         }}
@@ -417,9 +494,33 @@ LIVEKIT_CLIENT_JS = f"""
           appendLog(`${{topic || "Data"}}: ${{message.slice(0, 90)}}`);
         }} catch (_) {{ appendLog("Received a LiveKit data message"); }}
       }});
+      if (room.registerTextStreamHandler) {{
+        room.registerTextStreamHandler("lk.transcription", async (reader, participantInfo) => {{
+          try {{
+            const message = await reader.readAll();
+            const attributes = reader.info?.attributes || {{}};
+            const isUser = participantInfo?.identity === room.localParticipant.identity;
+            const isFinal = attributes["lk.transcription_final"] !== "false";
+            const segmentId = `${{isUser ? "user" : "agent"}}-${{attributes["lk.segment_id"] || Date.now()}}`;
+            appendTranscript(message, isUser, isFinal, segmentId);
+            appendLog(`${{isUser ? "Speech recognized" : "Agent transcript"}}: ${{message.slice(0, 70)}}`);
+          }} catch (error) {{ appendLog(error?.message || "Could not read the transcript"); }}
+        }});
+      }} else {{
+        room.on("transcriptionReceived", (segments, participant) => {{
+          (segments || []).forEach((segment) => {{
+            const isUser = participant?.identity === room.localParticipant.identity;
+            appendTranscript(segment.text, isUser, segment.final ?? true, `${{isUser ? "user" : "agent"}}-${{segment.id || segment.segmentId || Date.now()}}`);
+          }});
+        }});
+      }}
       await room.connect(url, token);
       await room.localParticipant.setMicrophoneEnabled(false);
       microphoneEnabled = false;
+      setControlDisabled("#lk-mic-button", false);
+      setControlDisabled("#lk-speaker-button", false);
+      setControlDisabled("#lk-disconnect-button", false);
+      setSpeakerMuted(false);
       setConsoleState("Live", true);
       setConsoleCopy("You’re connected", "Enable your microphone and speak naturally to the voice agent.");
       updateParticipantCount();
@@ -435,16 +536,23 @@ LIVEKIT_CLIENT_JS = f"""
   async function toggleMicrophone() {{
     if (!room) {{ appendLog("Connect a room first"); return; }}
     try {{
+      await room.startAudio().catch(() => {{}});
       microphoneEnabled = !microphoneEnabled;
       await room.localParticipant.setMicrophoneEnabled(microphoneEnabled);
       const mic = $("#lk-mic-button");
       if (mic) {{
-        mic.textContent = microphoneEnabled ? "Mute microphone" : "Enable microphone";
+        mic.textContent = microphoneEnabled ? "Mute microphone" : "Unmute microphone";
         mic.classList.toggle("primary", microphoneEnabled);
       }}
       setConsoleCopy(microphoneEnabled ? "Microphone is live" : "You’re connected", microphoneEnabled ? "Speak normally. The agent will respond in the room." : "Enable your microphone when you’re ready.");
       appendLog(microphoneEnabled ? "Microphone enabled" : "Microphone muted");
     }} catch (error) {{ appendLog(error?.message || "Microphone permission was not granted"); }}
+  }}
+
+  function toggleSpeaker() {{
+    if (!room) {{ appendLog("Connect a room first"); return; }}
+    setSpeakerMuted(!speakerMuted);
+    appendLog(speakerMuted ? "Speaker muted" : "Speaker unmuted");
   }}
 
   async function sendDataMessage() {{
@@ -453,11 +561,11 @@ LIVEKIT_CLIENT_JS = f"""
     const text = input?.value.trim();
     if (!text) return;
     try {{
-      const payload = new TextEncoder().encode(text);
-      if (room.localParticipant.publishData) await room.localParticipant.publishData(payload, {{ reliable: true, topic: "gradio.command" }});
-      else if (room.localParticipant.sendText) await room.localParticipant.sendText(text, {{ topic: "gradio.command" }});
+      if (!room.localParticipant.sendText) throw new Error("Text input is unavailable in this LiveKit client.");
+      await room.localParticipant.sendText(text, {{ topic: "lk.chat" }});
       if (input) input.value = "";
-      appendLog(`Sent data signal: ${{text.slice(0, 70)}}`);
+      appendTranscript(text, true, true, `typed-${{Date.now()}}`);
+      appendLog(`Message sent: ${{text.slice(0, 70)}}`);
     }} catch (error) {{ appendLog(error?.message || "Could not send data signal"); }}
   }}
 
@@ -466,8 +574,10 @@ LIVEKIT_CLIENT_JS = f"""
     if (!mic || mic.dataset.wired === "1") return;
     mic.dataset.wired = "1";
     mic.addEventListener("click", toggleMicrophone);
+    $("#lk-speaker-button")?.addEventListener("click", toggleSpeaker);
     $("#lk-disconnect-button")?.addEventListener("click", () => disconnect("Disconnected by operator"));
     $("#lk-send-button")?.addEventListener("click", sendDataMessage);
+    $("#lk-clear-transcript")?.addEventListener("click", clearTranscript);
     $("#lk-data-input")?.addEventListener("keydown", (event) => {{ if (event.key === "Enter") sendDataMessage(); }});
   }}
 
@@ -539,13 +649,26 @@ def build_app() -> gr.Blocks:
                               </div>
                             </div>
                             <div class="console-actions">
-                              <button id="lk-mic-button" class="primary" type="button">Enable microphone</button>
-                              <button id="lk-disconnect-button" class="danger" type="button">Disconnect audio</button>
+                              <button id="lk-mic-button" class="primary call-control" type="button" disabled>Unmute microphone</button>
+                              <button id="lk-speaker-button" class="call-control" type="button" disabled>Mute speaker</button>
+                              <button id="lk-disconnect-button" class="danger call-control" type="button" disabled>End call</button>
                               <span id="lk-session-meta" class="console-subcopy">No active room</span>
                             </div>
                             <div class="data-row">
-                              <input id="lk-data-input" type="text" placeholder="Optional LiveKit data signal…" aria-label="Optional LiveKit data signal" />
-                              <button id="lk-send-button" type="button">Send signal</button>
+                              <input id="lk-data-input" type="text" placeholder="Type a message if you prefer…" aria-label="Type a message to the agent" />
+                              <button id="lk-send-button" type="button">Send message</button>
+                            </div>
+                            <div class="transcript-panel">
+                              <div class="transcript-header">
+                                <div>
+                                  <div class="transcript-title">Live transcript</div>
+                                  <div class="transcript-caption">Speech-to-text and agent replies appear here.</div>
+                                </div>
+                                <button id="lk-clear-transcript" class="transcript-clear" type="button">Clear</button>
+                              </div>
+                              <div id="lk-transcript-list" class="transcript-list">
+                                <div id="lk-transcript-empty" class="transcript-empty">Your conversation will appear here.</div>
+                              </div>
                             </div>
                             <div id="lk-event-log" class="event-log">Waiting for you to start a session.</div>
                             <div id="lk-audio-sink" aria-hidden="true"></div>
