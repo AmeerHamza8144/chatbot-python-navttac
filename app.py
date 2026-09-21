@@ -513,6 +513,58 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
   .hl-control-group { width: 100%; }
   .hl-main-action { flex: 1 1 190px; }
 }
+
+/* Final white professional treatment */
+body, .gradio-container {
+  background: #ffffff !important;
+  color: #111827 !important;
+}
+.hl-app-header {
+  background: #ffffff;
+  border-bottom-color: #e5e7eb;
+}
+.hl-brand-name {
+  color: #111827 !important;
+  background: none !important;
+  -webkit-text-fill-color: #111827 !important;
+}
+.hl-tagline, .hl-latency, .hl-server-message, .hl-server-hint { color: #4b5563 !important; }
+.hl-status-badge { background: #f9fafb; border-color: #d1d5db; color: #111827; }
+.hl-settings-button { background: #ffffff; border-color: #d1d5db; color: #111827; }
+.hl-panel { background: #ffffff; border-color: #d1d5db; box-shadow: 0 18px 45px rgba(15,23,42,.08); }
+.hl-action-row { background: #ffffff; border-bottom-color: #e5e7eb; }
+.hl-pill { background: #eff6ff; border-color: #bfdbfe; color: #1e3a8a; }
+.hl-pill.voice { background: #fff7ed; border-color: #fed7aa; color: #9a3412; }
+.hl-visualizer {
+  background: radial-gradient(circle at 50% 28%, #eff6ff, transparent 42%), linear-gradient(180deg, #ffffff, #f8fafc);
+}
+.hl-visualizer::before { background: radial-gradient(circle at center, rgba(37,99,235,.11), rgba(249,115,22,.06) 45%, transparent 72%); }
+.hl-session-title { color: #111827 !important; }
+.hl-session-subtitle { color: #4b5563 !important; }
+.hl-mode-indicator { background: #ffffff; border-color: #d1d5db; color: #111827; }
+.hl-transcript-column { background: #f9fafb; border-left-color: #e5e7eb; }
+.hl-transcript-head { border-bottom-color: #e5e7eb; }
+.hl-transcript-title { color: #111827; }
+.hl-transcript-feed { background: #ffffff; border-color: #d1d5db; }
+.hl-empty-transcript { color: #6b7280; }
+.hl-message-meta { color: #6b7280; }
+.hl-message-agent { color: #1d4ed8; }
+.hl-message-bubble { background: #f3f4f6; border-color: #d1d5db; color: #111827; }
+.hl-text-input { background: #ffffff; border-color: #d1d5db; color: #111827; }
+.hl-control-dock { background: #ffffff; border-top-color: #e5e7eb; }
+.hl-control { background: #ffffff; border-color: #cbd5e1; color: #111827; }
+.hl-control:hover:not(:disabled) { background: #eff6ff; border-color: #60a5fa; color: #1d4ed8; }
+.hl-top-session { flex: 0 0 auto; }
+.hl-action-right { display: flex; align-items: center; gap: 13px; }
+.hl-settings-card { background: #ffffff; border-color: #d1d5db; }
+.hl-settings-title { color: #111827; }
+.hl-setting-label, .hl-range-row { color: #4b5563; }
+.hl-setting-select, .hl-setting-input { background: #f9fafb; border-color: #d1d5db; color: #111827; }
+.hl-footer { color: #6b7280; border-top-color: #e5e7eb; }
+@media (max-width: 900px) {
+  .hl-action-right { width: 100%; justify-content: space-between; }
+  .hl-top-session { flex: 1 1 auto; justify-content: center; }
+}
 """
 
 
@@ -753,7 +805,7 @@ LIVEKIT_CLIENT_JS = """
     setMicUi();
     setSpeakerUi();
     setAllControls(true);
-    setStatus("idle", reason === "Session ended" ? "Session ended safely" : "Tap Orb to Start HamzaLive", reason === "Session ended" ? "Start a new session whenever you’re ready." : "Experience real-time natural conversational AI with speech, vision, and instant responses.");
+    setStatus("idle", reason === "Session ended" ? "Session ended safely" : "HamzaLive Voice Visualizer", reason === "Session ended" ? "Start a new session whenever you’re ready." : "Use the rectangular Start Session button above to begin.");
     setMainAction(false);
     setText("#orb-subtext", "Start");
     setText("#hl-event-log", reason);
@@ -969,7 +1021,10 @@ def build_app() -> gr.Blocks:
                         <div class="hl-pill"><span class="hl-pill-icon">◈</span><span id="display-model-name">Gemini 2.0 Flash Voice</span></div>
                         <div class="hl-pill voice"><span class="hl-pill-icon">◉</span><span id="display-voice-name">Voice: Aoede (Warm & Conversational)</span></div>
                       </div>
-                      <div class="hl-latency"><span class="hl-latency-icon">ϟ</span><span>Latency: <strong id="latency-text">-- ms</strong></span></div>
+                      <div class="hl-action-right">
+                        <div class="hl-latency"><span class="hl-latency-icon">ϟ</span><span>Latency: <strong id="latency-text">-- ms</strong></span></div>
+                        <button id="btn-main-session" class="hl-main-action hl-top-session" type="button"><span id="btn-main-icon">✦</span><span id="btn-main-text">Start HamzaLive Session</span></button>
+                      </div>
                     </div>
                     """
                 )
@@ -987,9 +1042,8 @@ def build_app() -> gr.Blocks:
                               <div class="hl-orb-area">
                                 <div class="hl-canvas-wrap">
                                   <canvas id="gemini-canvas" width="280" height="280"></canvas>
-                                  <button id="orb-core-btn" class="hl-orb-core" type="button"><span id="orb-icon" class="hl-orb-icon">♩</span><span id="orb-subtext" class="hl-orb-subtext">Start</span></button>
                                 </div>
-                                <div class="hl-session-copy"><div id="session-title" class="hl-session-title">Tap Orb to Start HamzaLive</div><div id="session-subtitle" class="hl-session-subtitle">Experience real-time natural conversational AI with speech, vision, and instant responses.</div></div>
+                                <div class="hl-session-copy"><div id="session-title" class="hl-session-title">HamzaLive Voice Visualizer</div><div id="session-subtitle" class="hl-session-subtitle">Use the rectangular Start Session button above to begin.</div></div>
                               </div>
                               <div class="hl-mode-indicator"><span class="hl-mode-dot"></span><span id="mode-indicator-text">VAD Auto-detection Enabled</span></div>
                             </div>
@@ -1014,7 +1068,6 @@ def build_app() -> gr.Blocks:
                         <button id="btn-mic" class="hl-control" type="button" disabled><span id="btn-mic-icon" class="hl-control-icon">♩</span><span id="btn-mic-text">Unmute Mic</span></button>
                         <button id="btn-camera" class="hl-control" type="button" disabled><span id="btn-camera-icon" class="hl-control-icon cyan">▣</span><span>Vision Stream</span></button>
                         <button id="btn-speaker" class="hl-control" type="button" disabled><span id="btn-speaker-icon" class="hl-control-icon">◉</span><span id="btn-speaker-text">Speaker On</span></button>
-                        <button id="btn-main-session" class="hl-main-action" type="button"><span id="btn-main-icon">✦</span><span id="btn-main-text">Start HamzaLive Session</span></button>
                       </div>
                     </div>
                     """
