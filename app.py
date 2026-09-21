@@ -607,6 +607,109 @@ body, .gradio-container {
   .hl-action-right { flex-wrap: wrap; }
   .hl-transcript-under-session { padding: 12px !important; }
 }
+
+/* HamzaLive compact dashboard composition */
+body { overflow: hidden !important; }
+.hl-main {
+  height: calc(100vh - 100px);
+  min-height: 0;
+  padding-top: 12px;
+  gap: 8px;
+}
+.hl-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+}
+.hl-action-row {
+  min-height: 48px;
+  padding: 8px 14px;
+}
+.hl-visualizer {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 12px 20px 10px;
+  background: linear-gradient(180deg, rgba(245,243,255,.68), rgba(248,250,252,.55) 58%, #fff);
+}
+.hl-visualizer::before { opacity: .65; }
+.hl-robot-stage {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.hl-robot-aura {
+  position: absolute;
+  width: 190px;
+  height: 190px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(99,102,241,.18), rgba(168,85,247,.16), rgba(34,211,238,.15));
+  filter: blur(22px);
+  animation: hl-pulse-glow 2.5s ease-in-out infinite;
+}
+.hl-robot-wrap {
+  position: relative;
+  z-index: 1;
+  width: clamp(126px, 22vh, 174px);
+  height: clamp(126px, 22vh, 174px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: hl-float 4s ease-in-out infinite;
+}
+.hl-robot-svg {
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 10px 20px rgba(99,102,241,.28));
+}
+.hl-robot-eyes { animation: hl-eye-pulse 2.2s ease-in-out infinite; }
+.hl-session-copy { margin-top: 6px; }
+.hl-session-title { font-size: 16px; }
+.hl-session-subtitle { font-size: 10px; }
+.hl-mode-indicator { margin-top: 8px; padding: 6px 11px; }
+.hl-transcript-under-session {
+  flex: 0 0 35%;
+  height: 35%;
+  min-height: 155px !important;
+  max-height: 260px;
+  padding: 8px 14px 10px !important;
+  gap: 7px;
+}
+.hl-transcript-under-session .hl-transcript-head { padding-bottom: 7px; }
+.hl-transcript-under-session .hl-transcript-feed {
+  min-height: 0;
+  max-height: none;
+  padding: 10px 12px;
+}
+.hl-transcript-under-session .hl-empty-transcript { min-height: 68px; }
+.hl-transcript-under-session .hl-text-input { padding-top: 8px; padding-bottom: 8px; }
+.hl-transcript-under-session .hl-event-log { min-height: 10px; }
+.hl-server-message, .hl-server-hint { display: none !important; }
+.hl-footer { margin-top: 0; padding-top: 2px; border-top: 0; }
+@keyframes hl-pulse-glow {
+  0%, 100% { transform: scale(.96); opacity: .75; filter: blur(22px); }
+  50% { transform: scale(1.06); opacity: 1; filter: blur(15px); }
+}
+@keyframes hl-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+@keyframes hl-eye-pulse {
+  0%, 100% { opacity: .78; }
+  50% { opacity: 1; }
+}
+@media (max-width: 900px) {
+  body { overflow: auto !important; }
+  .hl-main { height: auto; min-height: calc(100vh - 90px); }
+  .hl-panel { min-height: 680px; }
+  .hl-action-row { align-items: flex-start; }
+  .hl-visualizer { min-height: 310px; }
+  .hl-transcript-under-session { flex-basis: 300px; height: 300px; max-height: none; }
+}
 """
 
 
@@ -1113,9 +1216,22 @@ def build_app() -> gr.Blocks:
                         <div class="hl-camera-label"><span></span><span>HamzaLive Vision Stream Active</span></div>
                         <div class="hl-camera-frame"></div>
                       </div>
-                      <div class="hl-orb-area">
-                        <div class="hl-canvas-wrap"><canvas id="gemini-canvas" width="280" height="280"></canvas></div>
-                        <div class="hl-session-copy"><div id="session-title" class="hl-session-title">HamzaLive Voice Visualizer</div><div id="session-subtitle" class="hl-session-subtitle">Use the rectangular Start Session button above to begin.</div></div>
+                      <div class="hl-robot-stage">
+                        <div class="hl-robot-aura"></div>
+                        <div id="visualizerOrb" class="hl-robot-wrap">
+                          <svg class="hl-robot-svg" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="HamzaLive voice assistant">
+                            <circle cx="100" cy="22" r="7" fill="#38BDF8"><animate attributeName="opacity" values=".4;1;.4" dur="1.5s" repeatCount="indefinite"/></circle>
+                            <line x1="100" y1="29" x2="100" y2="45" stroke="#94A3B8" stroke-width="4" stroke-linecap="round"/>
+                            <rect x="35" y="45" width="130" height="110" rx="40" fill="url(#robotHeadGrad)" stroke="#CBD5E1" stroke-width="3"/>
+                            <rect x="22" y="80" width="14" height="40" rx="6" fill="#6366F1"/><rect x="164" y="80" width="14" height="40" rx="6" fill="#6366F1"/>
+                            <circle cx="29" cy="100" r="4" fill="#38BDF8"/><circle cx="171" cy="100" r="4" fill="#38BDF8"/>
+                            <rect x="48" y="62" width="104" height="76" rx="28" fill="#0F172A" stroke="#1E293B" stroke-width="2"/>
+                            <g class="hl-robot-eyes"><circle cx="75" cy="90" r="12" fill="#06B6D4"/><circle cx="75" cy="90" r="6" fill="#E0F2FE"/><circle cx="125" cy="90" r="12" fill="#06B6D4"/><circle cx="125" cy="90" r="6" fill="#E0F2FE"/></g>
+                            <g><rect x="76" y="118" width="4" height="10" rx="2" fill="#38BDF8"><animate attributeName="height" values="6;16;8;14;6" dur=".8s" repeatCount="indefinite"/></rect><rect x="84" y="118" width="4" height="14" rx="2" fill="#818CF8"><animate attributeName="height" values="10;22;12;20;10" dur=".6s" repeatCount="indefinite"/></rect><rect x="92" y="118" width="4" height="18" rx="2" fill="#C084FC"><animate attributeName="height" values="12;24;10;22;12" dur=".7s" repeatCount="indefinite"/></rect><rect x="100" y="118" width="4" height="18" rx="2" fill="#C084FC"><animate attributeName="height" values="14;20;8;24;14" dur=".65s" repeatCount="indefinite"/></rect><rect x="108" y="118" width="4" height="14" rx="2" fill="#818CF8"><animate attributeName="height" values="8;20;14;18;8" dur=".75s" repeatCount="indefinite"/></rect><rect x="116" y="118" width="4" height="10" rx="2" fill="#38BDF8"><animate attributeName="height" values="6;14;10;16;6" dur=".55s" repeatCount="indefinite"/></rect></g>
+                            <defs><linearGradient id="robotHeadGrad" x1="35" y1="45" x2="165" y2="155" gradientUnits="userSpaceOnUse"><stop stop-color="#FFFFFF"/><stop offset=".6" stop-color="#F1F5F9"/><stop offset="1" stop-color="#E2E8F0"/></linearGradient></defs>
+                          </svg>
+                        </div>
+                        <div class="hl-session-copy"><div id="session-title" class="hl-session-title">HamzaLive Listening...</div><div id="session-subtitle" class="hl-session-subtitle">Speak naturally into your microphone or toggle vision stream.</div></div>
                       </div>
                       <div class="hl-mode-indicator"><span class="hl-mode-dot"></span><span id="mode-indicator-text">VAD Auto-detection Enabled</span></div>
                     </div>
