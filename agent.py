@@ -62,7 +62,7 @@ async def my_agent(ctx: agents.JobContext) -> None:
                 ),
             ),
             text_output=room_io.TextOutputOptions(
-                sync_transcription=False,
+                sync_transcription=True,
             ),
         ),
     )

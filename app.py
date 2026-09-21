@@ -565,6 +565,48 @@ body, .gradio-container {
   .hl-action-right { width: 100%; justify-content: space-between; }
   .hl-top-session { flex: 1 1 auto; justify-content: center; }
 }
+
+/* Compact laptop layout */
+.hl-panel { min-height: auto; }
+.hl-visualizer {
+  min-height: 315px;
+  padding: 14px 24px 16px;
+}
+.hl-canvas-wrap { position: relative; display: flex; align-items: center; justify-content: center; }
+#gemini-canvas { width: 210px; height: 210px; }
+.hl-transcript-under-session {
+  min-height: auto !important;
+  display: flex;
+  gap: 9px;
+  padding: 13px 18px 15px !important;
+  border-top: 1px solid #e5e7eb;
+  border-left: 0 !important;
+}
+.hl-transcript-under-session .hl-transcript-feed {
+  min-height: 92px;
+  max-height: 145px;
+}
+.hl-transcript-under-session .hl-empty-transcript { min-height: 72px; }
+.hl-top-controls { display: flex; align-items: center; gap: 6px; }
+.hl-top-controls .hl-control {
+  min-height: 34px;
+  padding: 7px 9px;
+  font-size: 9px;
+}
+.hl-top-controls .hl-control-icon { font-size: 12px; }
+.hl-action-right { gap: 8px; }
+.hl-latency strong { color: #111827 !important; }
+.hl-camera-label, .hl-camera-label span:last-child { color: #111827; }
+.hl-settings-title, .hl-setting-label, .hl-range-row, .hl-message-agent,
+.hl-transcript-title, .hl-session-title, .hl-mode-indicator, .hl-event-log { color: #111827 !important; }
+@media (max-width: 900px) {
+  .hl-visualizer { min-height: 285px; }
+  #gemini-canvas { width: 185px; height: 185px; }
+  .hl-top-controls { width: 100%; }
+  .hl-top-controls .hl-control { flex: 1 1 auto; justify-content: center; }
+  .hl-action-right { flex-wrap: wrap; }
+  .hl-transcript-under-session { padding: 12px !important; }
+}
 """
 
 
@@ -678,7 +720,7 @@ LIVEKIT_CLIENT_JS = """
     state.canvasAnimation = window.requestAnimationFrame(renderOrb);
   }
 
-  function appendTranscript(speaker, message, isInterim = false) {
+  function appendTranscript(speaker, message, isInterim = false, segmentId = "") {
     const clean = String(message || "").trim();
     if (!clean) return;
     const feed = $("#transcript-feed");
@@ -686,26 +728,41 @@ LIVEKIT_CLIENT_JS = """
     $("#empty-transcript-msg")?.remove();
     const isAssistant = speaker === "HamzaLive" || speaker === "Agent";
     const isSystem = speaker === "System";
-    const key = speaker + "-" + Date.now() + "-" + Math.random();
-    state.transcript.push({ speaker, message: clean, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) });
-    const row = document.createElement("div");
-    row.className = "hl-message " + (isAssistant ? "agent" : isSystem ? "system" : "user");
-    const meta = document.createElement("div");
-    meta.className = "hl-message-meta";
-    const name = document.createElement("span");
-    name.className = isAssistant ? "hl-message-agent" : "";
-    name.textContent = speaker;
-    const time = document.createElement("span");
-    time.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    meta.append(name, time);
-    const bubble = document.createElement("div");
-    bubble.className = "hl-message-bubble";
+    const key = segmentId || speaker + "-" + Date.now() + "-" + Math.random();
+    let row = transcriptEntries.get(key);
+    let bubble;
+    if (!row) {
+      row = document.createElement("div");
+      row.className = "hl-message " + (isAssistant ? "agent" : isSystem ? "system" : "user");
+      const meta = document.createElement("div");
+      meta.className = "hl-message-meta";
+      const name = document.createElement("span");
+      name.className = isAssistant ? "hl-message-agent" : "";
+      name.textContent = speaker;
+      const time = document.createElement("span");
+      time.className = "hl-message-time";
+      time.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      meta.append(name, time);
+      bubble = document.createElement("div");
+      bubble.className = "hl-message-bubble";
+      row.append(meta, bubble);
+      feed.appendChild(row);
+      transcriptEntries.set(key, row);
+    } else {
+      bubble = row.querySelector(".hl-message-bubble");
+    }
     bubble.textContent = clean;
     if (isInterim) bubble.style.opacity = ".62";
-    row.append(meta, bubble);
-    feed.appendChild(row);
+    else bubble.style.opacity = "1";
+    const existing = state.transcript.find((item) => item.key === key);
+    if (existing) {
+      existing.message = clean;
+      existing.final = !isInterim;
+    } else {
+      state.transcript.push({ key, speaker, message: clean, final: !isInterim, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) });
+    }
+    if (!isInterim) transcriptEntries.delete(key);
     feed.scrollTop = feed.scrollHeight;
-    transcriptEntries.set(key, row);
   }
 
   function clearTranscript() {
@@ -718,7 +775,7 @@ LIVEKIT_CLIENT_JS = """
 
   function downloadTranscript() {
     if (!state.transcript.length) return;
-    const content = state.transcript.map((item) => "[" + item.time + "] " + item.speaker + ": " + item.message).join("\\n");
+    const content = state.transcript.filter((item) => item.final).map((item) => "[" + item.time + "] " + item.speaker + ": " + item.message).join("\\n");
     const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
@@ -845,8 +902,15 @@ LIVEKIT_CLIENT_JS = """
             const attributes = reader.info?.attributes || {};
             const isUser = participantInfo?.identity === state.room.localParticipant.identity;
             const finalText = attributes["lk.transcription_final"] !== "false";
-            appendTranscript(isUser ? state.userName : "HamzaLive", message, !finalText);
-            if (!isUser) setStatus("speaking", "HamzaLive Speaking...", "Streaming the agent response back in real time.");
+            const segmentId = attributes["lk.segment_id"] || attributes["lk.transcription_id"] || (isUser ? "user-" : "agent-") + Date.now();
+            appendTranscript(isUser ? state.userName : "HamzaLive", message, !finalText, segmentId);
+            if (isUser && finalText) setStatus("thinking", "HamzaLive Thinking...", "Listening complete. Preparing the response.");
+            if (!isUser) {
+              setStatus("speaking", "HamzaLive Speaking...", "Streaming the agent response back in real time.");
+              if (finalText) window.setTimeout(() => {
+                if (state.room && state.microphoneEnabled) setStatus("listening", "HamzaLive Listening...", "Speak naturally into your microphone.");
+              }, 600);
+            }
             appendLog((isUser ? "Speech recognized" : "Agent transcript") + ": " + message.slice(0, 70));
           } catch (error) { appendLog(error?.message || "Could not read the transcript"); }
         });
@@ -854,7 +918,16 @@ LIVEKIT_CLIENT_JS = """
         state.room.on("transcriptionReceived", (segments, participant) => {
           (segments || []).forEach((segment) => {
             const isUser = participant?.identity === state.room.localParticipant.identity;
-            appendTranscript(isUser ? state.userName : "HamzaLive", segment.text, !(segment.final ?? true));
+            const finalText = segment.final ?? true;
+            const segmentId = segment.id || segment.segmentId || (isUser ? "user-" : "agent-") + Date.now();
+            appendTranscript(isUser ? state.userName : "HamzaLive", segment.text, !finalText, segmentId);
+            if (isUser && finalText) setStatus("thinking", "HamzaLive Thinking...", "Listening complete. Preparing the response.");
+            if (!isUser) {
+              setStatus("speaking", "HamzaLive Speaking...", "Streaming the agent response back in real time.");
+              if (finalText) window.setTimeout(() => {
+                if (state.room && state.microphoneEnabled) setStatus("listening", "HamzaLive Listening...", "Speak naturally into your microphone.");
+              }, 600);
+            }
           });
         });
       }
@@ -909,7 +982,7 @@ LIVEKIT_CLIENT_JS = """
     try {
       await state.room.localParticipant.sendText(message, { topic: "lk.chat" });
       input.value = "";
-      appendTranscript(state.userName, message);
+      appendTranscript(state.userName, message, false, "typed-" + Date.now());
       setStatus("thinking", "HamzaLive Thinking...", "Processing your text message.");
       appendLog("Message sent");
     } catch (error) { appendLog(error?.message || "Could not send the message"); }
@@ -936,8 +1009,6 @@ LIVEKIT_CLIENT_JS = """
   }
 
   function wire() {
-    const orb = $("#gemini-canvas");
-    if (orb && orb.dataset.wired !== "1") { orb.dataset.wired = "1"; orb.addEventListener("click", toggleSession); }
     const core = $("#orb-core-btn");
     if (core && core.dataset.wired !== "1") { core.dataset.wired = "1"; core.addEventListener("click", toggleSession); }
     const main = $("#btn-main-session");
@@ -1022,53 +1093,44 @@ def build_app() -> gr.Blocks:
                         <div class="hl-pill voice"><span class="hl-pill-icon">◉</span><span id="display-voice-name">Voice: Aoede (Warm & Conversational)</span></div>
                       </div>
                       <div class="hl-action-right">
+                        <div class="hl-top-controls">
+                          <button id="btn-mic" class="hl-control" type="button" disabled><span id="btn-mic-icon" class="hl-control-icon">♩</span><span id="btn-mic-text">Unmute Mic</span></button>
+                          <button id="btn-camera" class="hl-control" type="button" disabled><span id="btn-camera-icon" class="hl-control-icon cyan">▣</span><span>Vision Stream</span></button>
+                          <button id="btn-speaker" class="hl-control" type="button" disabled><span id="btn-speaker-icon" class="hl-control-icon">◉</span><span id="btn-speaker-text">Speaker On</span></button>
+                        </div>
                         <div class="hl-latency"><span class="hl-latency-icon">ϟ</span><span>Latency: <strong id="latency-text">-- ms</strong></span></div>
                         <button id="btn-main-session" class="hl-main-action hl-top-session" type="button"><span id="btn-main-icon">✦</span><span id="btn-main-text">Start HamzaLive Session</span></button>
                       </div>
                     </div>
                     """
                 )
-                with gr.Row(elem_classes="hl-workspace-grid"):
-                    with gr.Column(scale=7, elem_classes="hl-visual-column"):
-                        gr.HTML(
-                            """
-                            <div id="visualizer-container" class="hl-visualizer">
-                              <div id="ambient-glow" class="hl-ambient-glow"></div>
-                              <div id="camera-feed-container" class="hl-camera-feed hl-hidden">
-                                <video id="camera-video" autoplay muted playsinline></video>
-                                <div class="hl-camera-label"><span></span><span>HamzaLive Vision Stream Active</span></div>
-                                <div class="hl-camera-frame"></div>
-                              </div>
-                              <div class="hl-orb-area">
-                                <div class="hl-canvas-wrap">
-                                  <canvas id="gemini-canvas" width="280" height="280"></canvas>
-                                </div>
-                                <div class="hl-session-copy"><div id="session-title" class="hl-session-title">HamzaLive Voice Visualizer</div><div id="session-subtitle" class="hl-session-subtitle">Use the rectangular Start Session button above to begin.</div></div>
-                              </div>
-                              <div class="hl-mode-indicator"><span class="hl-mode-dot"></span><span id="mode-indicator-text">VAD Auto-detection Enabled</span></div>
-                            </div>
-                            """
-                        )
-                    with gr.Column(scale=5, elem_classes="hl-transcript-column"):
-                        gr.HTML(
-                            """
-                            <div class="hl-transcript-head">
-                              <div class="hl-transcript-title"><span class="hl-transcript-title-icon">▤</span><span>Live Transcript</span></div>
-                              <div class="hl-transcript-actions"><button id="download-transcript" class="hl-transcript-action" type="button" title="Export log">⇩</button><button id="clear-transcript" class="hl-transcript-action" type="button" title="Clear transcript">⌫</button></div>
-                            </div>
-                            <div id="transcript-feed" class="hl-transcript-feed"><div id="empty-transcript-msg" class="hl-empty-transcript"><div class="hl-empty-icon">✦</div><p>Your real-time conversation transcript will stream here seamlessly.</p></div></div>
-                            <form id="text-form" class="hl-text-form"><input id="text-input" class="hl-text-input" type="text" placeholder="Type a message or topic to discuss..." aria-label="Type a message to the agent" /><button class="hl-text-submit" type="submit">↗</button></form>
-                            <div id="hl-event-log" class="hl-event-log">Waiting for you to start a session.</div>
-                            """
-                        )
                 gr.HTML(
                     """
-                    <div class="hl-control-dock">
-                      <div class="hl-control-group">
-                        <button id="btn-mic" class="hl-control" type="button" disabled><span id="btn-mic-icon" class="hl-control-icon">♩</span><span id="btn-mic-text">Unmute Mic</span></button>
-                        <button id="btn-camera" class="hl-control" type="button" disabled><span id="btn-camera-icon" class="hl-control-icon cyan">▣</span><span>Vision Stream</span></button>
-                        <button id="btn-speaker" class="hl-control" type="button" disabled><span id="btn-speaker-icon" class="hl-control-icon">◉</span><span id="btn-speaker-text">Speaker On</span></button>
+                    <div id="visualizer-container" class="hl-visualizer">
+                      <div id="ambient-glow" class="hl-ambient-glow"></div>
+                      <div id="camera-feed-container" class="hl-camera-feed hl-hidden">
+                        <video id="camera-video" autoplay muted playsinline></video>
+                        <div class="hl-camera-label"><span></span><span>HamzaLive Vision Stream Active</span></div>
+                        <div class="hl-camera-frame"></div>
                       </div>
+                      <div class="hl-orb-area">
+                        <div class="hl-canvas-wrap"><canvas id="gemini-canvas" width="280" height="280"></canvas></div>
+                        <div class="hl-session-copy"><div id="session-title" class="hl-session-title">HamzaLive Voice Visualizer</div><div id="session-subtitle" class="hl-session-subtitle">Use the rectangular Start Session button above to begin.</div></div>
+                      </div>
+                      <div class="hl-mode-indicator"><span class="hl-mode-dot"></span><span id="mode-indicator-text">VAD Auto-detection Enabled</span></div>
+                    </div>
+                    """
+                )
+                gr.HTML(
+                    """
+                    <div class="hl-transcript-column hl-transcript-under-session">
+                      <div class="hl-transcript-head">
+                        <div class="hl-transcript-title"><span class="hl-transcript-title-icon">▤</span><span>Live Transcript</span></div>
+                        <div class="hl-transcript-actions"><button id="download-transcript" class="hl-transcript-action" type="button" title="Export log">⇩</button><button id="clear-transcript" class="hl-transcript-action" type="button" title="Clear transcript">⌫</button></div>
+                      </div>
+                      <div id="transcript-feed" class="hl-transcript-feed"><div id="empty-transcript-msg" class="hl-empty-transcript"><div class="hl-empty-icon">✦</div><p>Your real-time conversation transcript will stream here seamlessly.</p></div></div>
+                      <form id="text-form" class="hl-text-form"><input id="text-input" class="hl-text-input" type="text" placeholder="Type a message or topic to discuss..." aria-label="Type a message to the agent" /><button class="hl-text-submit" type="submit">↗</button></form>
+                      <div id="hl-event-log" class="hl-event-log">Waiting for you to start a session.</div>
                     </div>
                     """
                 )
