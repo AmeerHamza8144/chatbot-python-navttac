@@ -561,9 +561,29 @@ body, .gradio-container {
 .hl-setting-label, .hl-range-row { color: #4b5563; }
 .hl-setting-select, .hl-setting-input { background: #f9fafb; border-color: #d1d5db; color: #111827; }
 .hl-footer { color: #6b7280; border-top-color: #e5e7eb; }
+.hl-footer.hl-footer-bar {
+  max-width: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 2px 4px 0;
+  border-top: 0;
+  text-align: left;
+  white-space: nowrap;
+}
+.hl-footer-bar .hl-footer-status,
+.hl-footer-bar .hl-footer-links { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.hl-footer-bar .hl-footer-status { overflow: hidden; text-overflow: ellipsis; }
+.hl-footer-bar .hl-footer-links { flex-shrink: 0; gap: 10px; }
+.hl-footer-bar a { color: #64748b; text-decoration: none; transition: color .18s ease; }
+.hl-footer-bar a:hover { color: #1d4ed8; }
+.hl-footer-status-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: #22c55e; }
 @media (max-width: 900px) {
   .hl-action-right { width: 100%; justify-content: space-between; }
   .hl-top-session { flex: 1 1 auto; justify-content: center; }
+  .hl-footer.hl-footer-bar { align-items: flex-start; flex-direction: column; gap: 5px; }
+  .hl-footer-bar .hl-footer-links { flex-wrap: wrap; }
 }
 
 /* Compact laptop layout */
@@ -876,6 +896,11 @@ LIVEKIT_CLIENT_JS = """
     feed.innerHTML = '<div id="empty-transcript-msg" class="hl-empty-transcript"><div class="hl-empty-icon">✦</div><p>Your real-time conversation transcript will stream here seamlessly.</p></div>';
   }
 
+  function scrollTranscriptToBottom() {
+    const feed = $("#transcript-feed");
+    if (feed) feed.scrollTo({ top: feed.scrollHeight, behavior: "smooth" });
+  }
+
   function downloadTranscript() {
     if (!state.transcript.length) return;
     const content = state.transcript.filter((item) => item.final).map((item) => "[" + item.time + "] " + item.speaker + ": " + item.message).join("\\n");
@@ -1130,6 +1155,8 @@ LIVEKIT_CLIENT_JS = """
     if (apply && apply.dataset.wired !== "1") { apply.dataset.wired = "1"; apply.addEventListener("click", applySettings); }
     const clear = $("#clear-transcript");
     if (clear && clear.dataset.wired !== "1") { clear.dataset.wired = "1"; clear.addEventListener("click", clearTranscript); }
+    const scroll = $("#scroll-to-bottom");
+    if (scroll && scroll.dataset.wired !== "1") { scroll.dataset.wired = "1"; scroll.addEventListener("click", scrollTranscriptToBottom); }
     const download = $("#download-transcript");
     if (download && download.dataset.wired !== "1") { download.dataset.wired = "1"; download.addEventListener("click", downloadTranscript); }
     const form = $("#text-form");
@@ -1242,7 +1269,7 @@ def build_app() -> gr.Blocks:
                     <div class="hl-transcript-column hl-transcript-under-session">
                       <div class="hl-transcript-head">
                         <div class="hl-transcript-title"><span class="hl-transcript-title-icon">▤</span><span>Live Transcript</span></div>
-                        <div class="hl-transcript-actions"><button id="download-transcript" class="hl-transcript-action" type="button" title="Export log">⇩</button><button id="clear-transcript" class="hl-transcript-action" type="button" title="Clear transcript">⌫</button></div>
+                        <div class="hl-transcript-actions"><button id="scroll-to-bottom" class="hl-transcript-action" type="button" title="Scroll to bottom">⇣</button><button id="download-transcript" class="hl-transcript-action" type="button" title="Export log">⇩</button><button id="clear-transcript" class="hl-transcript-action" type="button" title="Clear transcript">⌫</button></div>
                       </div>
                       <div id="transcript-feed" class="hl-transcript-feed"><div id="empty-transcript-msg" class="hl-empty-transcript"><div class="hl-empty-icon">✦</div><p>Your real-time conversation transcript will stream here seamlessly.</p></div></div>
                       <form id="text-form" class="hl-text-form"><input id="text-input" class="hl-text-input" type="text" placeholder="Type a message or topic to discuss..." aria-label="Type a message to the agent" /><button class="hl-text-submit" type="submit">↗</button></form>
@@ -1268,7 +1295,10 @@ def build_app() -> gr.Blocks:
                     <button id="apply-settings" class="hl-apply-settings" type="button">Apply Settings</button>
                   </div>
                 </div>
-                <footer class="hl-footer">Powered by HamzaLive Engine · Real-time WebRTC AI Architecture</footer>
+                <footer class="hl-footer hl-footer-bar">
+                  <div class="hl-footer-status"><span class="hl-footer-status-dot"></span><span>Ready · voice-agent-411c19001dc9</span><span class="hl-footer-separator">•</span><span>Token issued for Hamza. Backend worker is online.</span></div>
+                  <div class="hl-footer-links"><a href="#" onclick="return false">Runs ↺</a><span>·</span><a href="#" onclick="return false">Use via API</a><span>·</span><a href="#" onclick="return false">Built with Gradio</a><span>·</span><a href="#" onclick="return false">Settings ⚙</a></div>
+                </footer>
                 """
             )
 
