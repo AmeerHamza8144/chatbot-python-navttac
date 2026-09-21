@@ -1,13 +1,12 @@
-"""Professional Gradio control panel for the LiveKit voice agent.
+"""HamzaLive Gradio workspace for the LiveKit voice agent.
 
 Run with:
 
     python app.py
 
-The dashboard is intentionally separate from ``agent.py``.  It starts the
-agent's LiveKit worker in a managed subprocess, creates a room token with an
-explicit ``my-agent`` dispatch, and provides a small browser-side LiveKit
-console for microphone and speaker interaction.
+The server-side functions in this module create room tokens and manage the
+LiveKit worker from agent.py. The HamzaLive interface below runs the live
+browser controls and transcript through the LiveKit JavaScript client.
 """
 
 from __future__ import annotations
@@ -28,9 +27,9 @@ from livekit import api
 load_dotenv(Path(__file__).with_name(".env"))
 
 PROJECT_DIR = Path(__file__).resolve().parent
-AGENT_NAME = "my-agent"
+AGENT_NAME = os.getenv("LIVEKIT_AGENT_NAME", "my-agent").strip() or "my-agent"
 DEFAULT_ROOM = f"voice-agent-{uuid.uuid4().hex[:12]}"
-DEFAULT_IDENTITY = "Rizwan"
+DEFAULT_IDENTITY = "Hamza"
 LIVEKIT_CLIENT_CDN = "https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"
 
 _worker_process: subprocess.Popen[bytes] | None = None
@@ -66,28 +65,10 @@ def _configuration_summary() -> str:
 
 
 def worker_status_markdown() -> str:
-    """Return the status card rendered in the dashboard."""
-
     running = _worker_is_running()
     state = "ONLINE" if running else "OFFLINE"
-    state_class = "online" if running else "offline"
     pid = str(_worker_process.pid) if running and _worker_process else "—"
-    url = os.getenv("LIVEKIT_URL", "Not configured")
-
-    return f"""
-<div class="worker-status-card">
-  <div class="worker-status-heading">
-    <span class="status-pill {state_class}"><span class="status-dot"></span>{state}</span>
-    <span class="worker-process">PID {pid}</span>
-  </div>
-  <div class="worker-status-grid">
-    <div><span>Worker</span><strong>{AGENT_NAME}</strong></div>
-    <div><span>Configuration</span><strong>{_configuration_summary()}</strong></div>
-    <div><span>Endpoint</span><strong>{url}</strong></div>
-    <div><span>Dispatch</span><strong>Room token · enabled</strong></div>
-  </div>
-</div>
-"""
+    return f"<span>{state} · PID {pid} · {_configuration_summary()}</span>"
 
 
 def start_worker() -> tuple[str, str]:
@@ -153,13 +134,6 @@ def stop_worker() -> tuple[str, str]:
     return worker_status_markdown(), "Worker stopped."
 
 
-def restart_worker() -> tuple[str, str]:
-    """Restart the managed worker and return a single activity message."""
-
-    stop_worker()
-    return start_worker()
-
-
 def _create_token(room_name: str, participant_identity: str) -> str:
     """Create a browser token that dispatches the configured agent."""
 
@@ -185,11 +159,8 @@ def _create_token(room_name: str, participant_identity: str) -> str:
     return access_token.to_jwt()
 
 
-def start_session(
-    room_name: str,
-    participant_identity: str,
-) -> tuple[str, str, str, str]:
-    """Start the backend worker and hand a short-lived token to the browser."""
+def start_session(room_name: str, participant_identity: str) -> tuple[str, str, str, str]:
+    """Start the worker and issue a short-lived browser room token."""
 
     room_name = (room_name or "").strip()
     participant_identity = (participant_identity or "").strip()
@@ -200,7 +171,7 @@ def start_session(
     if not room_name or not participant_identity:
         return "", "", "Not connected", "Room name and participant identity are required."
     if not livekit_url.startswith(("ws://", "wss://", "http://", "https://")):
-        return "", "", "Not connected", "LIVEKIT_URL in .env must start with ws://, wss://, http://, or https://."
+        return "", "", "Not connected", "LIVEKIT_URL must start with ws://, wss://, http://, or https://."
 
     _worker_status, worker_message = start_worker()
     if not _worker_is_running():
@@ -230,542 +201,757 @@ atexit.register(_shutdown_worker)
 
 APP_CSS = """
 :root {
-  --ink: #11213b;
-  --muted: #6c7b91;
-  --line: #e4eaf2;
-  --surface: #ffffff;
-  --canvas: #f7fbff;
-  --accent: #f97316;
-  --accent-deep: #ea580c;
-  --accent-soft: #fff2e8;
-  --sky: #38bdf8;
-  --sky-soft: #e8f8ff;
-  --mint: #0ba986;
-  --shadow: 0 18px 45px rgba(24, 49, 87, .08);
+  --hl-bg: #080c14;
+  --hl-surface: #131927;
+  --hl-surface-2: #0d1422;
+  --hl-border: #212b3e;
+  --hl-muted: #94a3b8;
+  --hl-text: #f3f4f6;
+  --hl-blue: #4285f4;
+  --hl-purple: #a142f4;
+  --hl-cyan: #00e5ff;
+  --hl-shadow: 0 24px 60px rgba(0, 0, 0, .28);
 }
-
-body, .gradio-container { background: radial-gradient(circle at 82% 0%, #e8f8ff 0, transparent 28%), var(--canvas) !important; color: var(--ink) !important; }
-.gradio-container { max-width: 1440px !important; padding: 28px 34px 42px !important; }
-.app-shell { max-width: 1210px; margin: 0 auto; }
-.hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin: 8px 0 26px; }
-.eyebrow { color: var(--accent-deep); font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; margin-bottom: 10px; }
-.hero h1 { color: var(--ink); font-size: 38px; line-height: 1.08; letter-spacing: -.045em; margin: 0 0 10px; }
-.hero p { color: var(--muted); font-size: 15px; margin: 0; max-width: 650px; }
-.hero-mark { display: flex; align-items: center; gap: 10px; color: var(--ink); font-size: 13px; font-weight: 700; white-space: nowrap; }
-.hero-mark .mark { display: grid; place-items: center; width: 38px; height: 38px; color: white; border-radius: 12px; background: linear-gradient(135deg, var(--accent), var(--sky)); box-shadow: 0 9px 20px rgba(249,115,22,.25); }
-.surface { border: 1px solid var(--line); border-radius: 18px; background: var(--surface); box-shadow: var(--shadow); }
-.session-surface { min-height: 560px; overflow: hidden; }
-.session-top { display: flex; justify-content: space-between; align-items: center; padding: 24px 26px 19px; border-bottom: 1px solid var(--line); }
-.session-status-group { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; justify-content: flex-end; }
-.section-kicker { color: var(--muted); font-size: 11px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
-.session-title { color: var(--ink); font-size: 22px; font-weight: 750; margin-top: 7px; }
-.session-state { display: inline-flex; align-items: center; gap: 8px; color: #7890a8; background: #f5f7fb; border: 1px solid var(--line); border-radius: 999px; padding: 7px 11px; font-size: 12px; font-weight: 750; }
-.session-state .state-dot { width: 7px; height: 7px; border-radius: 50%; background: #a7b4c4; }
-.session-state.live { color: #08785e; background: #effbf7; border-color: #c8f0e5; }
-.session-state.live .state-dot { background: var(--mint); box-shadow: 0 0 0 4px rgba(11,169,134,.12); }
-.live-console { padding: 24px 26px 28px; border-top: 3px solid transparent; border-image: linear-gradient(90deg, var(--accent), var(--sky)) 1; }
-.console-visual { display: grid; place-items: center; min-height: 228px; border: 1px solid #dff1fb; border-radius: 15px; background: radial-gradient(circle at 50% 36%, #fff0e5 0, #eefaff 38%, #fff 72%); text-align: center; }
-.voice-orb { position: relative; display: grid; place-items: center; width: 100px; height: 100px; border-radius: 50%; color: var(--accent-deep); background: #fff; border: 10px solid #fff4ec; box-shadow: 0 0 0 1px #ffd2b4, 0 14px 25px rgba(249,115,22, .14); font-size: 30px; }
-.voice-orb::before, .voice-orb::after { position: absolute; content: ""; inset: -21px; border: 1px solid rgba(56,189,248,.35); border-radius: 50%; }
-.voice-orb::after { inset: -34px; border-color: rgba(249,115,22,.18); }
-.voice-orb.speaking { animation: pulse 1.4s ease-in-out infinite; }
-.console-copy { margin-top: 17px; color: var(--ink); font-size: 14px; font-weight: 700; }
-.console-subcopy { margin-top: 6px; color: var(--muted); font-size: 12px; }
-@keyframes pulse { 0%,100% { transform: scale(1); box-shadow: 0 0 0 1px #dae4ff, 0 14px 25px rgba(56, 88, 170, .1); } 50% { transform: scale(1.07); box-shadow: 0 0 0 12px rgba(52,103,245,.06), 0 18px 32px rgba(56, 88, 170, .16); } }
-.console-actions { display: flex; gap: 10px; align-items: center; margin-top: 18px; }
-.console-actions button { border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 10px; padding: 10px 15px; font-size: 12px; font-weight: 750; cursor: pointer; transition: .18s ease; }
-.console-actions button:hover { border-color: #b9c9ef; transform: translateY(-1px); }
-.console-actions button.primary { color: #fff; border-color: var(--accent); background: linear-gradient(135deg, var(--accent), var(--accent-deep)); }
-.console-actions button.danger { color: #b84052; }
-.data-row { display: flex; align-items: center; gap: 9px; margin-top: 19px; }
-.data-row input { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; color: var(--ink); background: #fbfcfe; font-size: 12px; outline: none; }
-.data-row input:focus { border-color: #9cb5fa; box-shadow: 0 0 0 3px rgba(52,103,245,.09); }
-.data-row button { border: 0; border-radius: 9px; padding: 10px 13px; color: #fff; background: #152847; font-size: 12px; font-weight: 750; cursor: pointer; }
-.event-log { margin-top: 17px; height: 29px; color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.transcript-panel { margin-top: 18px; border: 1px solid #e4ebf6; border-radius: 13px; background: #fbfcff; overflow: hidden; }
-.transcript-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-bottom: 1px solid #e8edf5; }
-.transcript-title { color: var(--ink); font-size: 12px; font-weight: 800; }
-.transcript-caption { color: var(--muted); font-size: 10px; margin-top: 3px; }
-.transcript-clear { border: 0; color: #58709a; background: transparent; font-size: 10px; font-weight: 750; cursor: pointer; }
-.transcript-list { display: flex; flex-direction: column; gap: 9px; min-height: 73px; max-height: 190px; overflow-y: auto; padding: 12px 14px; }
-.transcript-empty { display: grid; place-items: center; min-height: 48px; color: #91a0b5; font-size: 11px; text-align: center; }
-.transcript-entry { display: flex; flex-direction: column; max-width: 85%; }
-.transcript-entry.user { align-self: flex-end; align-items: flex-end; }
-.transcript-entry.agent { align-self: flex-start; align-items: flex-start; }
-.transcript-speaker { color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; margin: 0 4px 4px; }
-.transcript-bubble { color: var(--ink); background: #fff; border: 1px solid #e1e8f3; border-radius: 11px 11px 11px 3px; padding: 8px 10px; font-size: 12px; line-height: 1.42; white-space: pre-wrap; word-break: break-word; }
-.transcript-entry.user .transcript-bubble { color: #fff; border-color: var(--accent); background: var(--accent); border-radius: 11px 11px 3px 11px; }
-.transcript-entry.interim .transcript-bubble { opacity: .68; font-style: italic; }
-.call-control:disabled { opacity: .45; cursor: not-allowed !important; transform: none !important; }
-.right-stack { gap: 18px; }
-.sidebar-panel { order: -1; }
-.main-panel { order: 1; }
-.control-surface { padding: 22px; }
-.control-title { color: var(--ink); font-size: 16px; font-weight: 750; margin-bottom: 5px; }
-.control-description { color: var(--muted); font-size: 12px; line-height: 1.55; margin-bottom: 15px; }
-.worker-status-card { padding: 2px 0; }
-.worker-status-heading { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.status-pill { display: inline-flex; align-items: center; gap: 8px; border-radius: 999px; padding: 6px 10px; font-size: 11px; font-weight: 800; letter-spacing: .08em; }
-.status-pill.online { color: #08785e; background: #effbf7; }
-.status-pill.offline { color: #7c6870; background: #f8f3f5; }
-.status-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-.worker-process { color: var(--muted); font-size: 11px; }
-.worker-status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 13px 20px; }
-.worker-status-grid div { min-width: 0; }
-.worker-status-grid span { display: block; color: var(--muted); font-size: 10px; margin-bottom: 4px; }
-.worker-status-grid strong { display: block; color: var(--ink); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.worker-buttons { display: flex; gap: 8px; margin-top: 19px; }
-.worker-buttons button { flex: 1; }
-.hint { color: var(--muted); font-size: 11px; line-height: 1.45; padding: 10px 12px; border-radius: 9px; background: #f7f9fd; }
-.config-note { margin-top: 15px; padding-top: 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; line-height: 1.55; }
-.config-note code { color: #435f9e; background: #eef3ff; padding: 2px 5px; border-radius: 4px; }
-.flow-surface { padding: 19px 22px; }
-.flow-title { color: var(--ink); font-size: 14px; font-weight: 750; margin-bottom: 13px; }
-.flow-step { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 11px; line-height: 1.4; margin-top: 10px; }
-.flow-step span { display: grid; place-items: center; flex: 0 0 auto; width: 22px; height: 22px; color: var(--accent); background: var(--accent-soft); border-radius: 50%; font-size: 10px; font-weight: 800; }
-.advanced-panel { border: 1px solid var(--line) !important; border-radius: 15px !important; background: rgba(255,255,255,.72) !important; box-shadow: none !important; }
-.advanced-panel > .label-wrap { color: var(--ink) !important; font-size: 12px !important; font-weight: 750 !important; }
-.settings-label { color: var(--muted); font-size: 11px; font-weight: 750; margin: 2px 0 5px; }
-.lk-internal-state { position: fixed !important; left: -10000px !important; top: -10000px !important; width: 1px !important; height: 1px !important; opacity: 0 !important; pointer-events: none !important; overflow: hidden !important; }
-footer { display: none !important; }
-@media (max-width: 900px) { .gradio-container { padding: 20px 15px 30px !important; } .hero { align-items: flex-start; flex-direction: column; } .hero h1 { font-size: 31px; } .session-surface { min-height: auto; } }
+* { box-sizing: border-box; }
+body, .gradio-container {
+  background: var(--hl-bg) !important;
+  color: var(--hl-text) !important;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif !important;
+}
+.gradio-container {
+  max-width: 1440px !important;
+  min-height: 100vh;
+  padding: 0 24px 30px !important;
+}
+.gradio-container > .main { padding-top: 0 !important; }
+.hl-app-header {
+  width: 100vw;
+  margin-left: calc(50% - 50vw);
+  height: 66px;
+  padding: 0 max(24px, calc((100vw - 1240px) / 2));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: rgba(19, 25, 39, .78);
+  border-bottom: 1px solid rgba(255, 255, 255, .08);
+  backdrop-filter: blur(16px);
+}
+.hl-brand, .hl-brand-line, .hl-header-actions, .hl-status-badge, .hl-action-row,
+.hl-pill, .hl-latency, .hl-transcript-title, .hl-transcript-actions,
+.hl-control-group, .hl-control, .hl-main-action, .hl-mode-indicator {
+  display: flex;
+  align-items: center;
+}
+.hl-brand { gap: 11px; }
+.hl-logo {
+  width: 38px; height: 38px; display: grid; place-items: center; padding: 2px;
+  border-radius: 12px; background: linear-gradient(135deg, #2563eb, #9333ea, #22d3ee);
+  box-shadow: 0 10px 24px rgba(161, 66, 244, .22);
+}
+.hl-logo-inner {
+  width: 100%; height: 100%; display: grid; place-items: center; border-radius: 10px;
+  background: #020617; color: var(--hl-cyan); font-size: 18px; font-weight: 800;
+}
+.hl-brand-copy { display: block; }
+.hl-brand-line { gap: 8px; }
+.hl-brand-name { color: var(--hl-text); font-size: 15px; font-weight: 900; letter-spacing: -.02em; }
+.hl-gradient-text {
+  background: linear-gradient(135deg, #4285f4, #a142f4 50%, #00e5ff);
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+}
+.hl-pro {
+  padding: 3px 7px; border: 1px solid rgba(161, 66, 244, .25); border-radius: 999px;
+  background: rgba(161, 66, 244, .1); color: #c084fc; font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+}
+.hl-tagline { margin-top: 3px; color: #94a3b8; font-size: 10px; }
+.hl-header-actions { gap: 10px; }
+.hl-status-badge {
+  gap: 8px; padding: 7px 11px; border: 1px solid #1e293b; border-radius: 999px;
+  background: rgba(2, 6, 23, .72); color: #94a3b8; font-size: 10px; font-weight: 700;
+  transition: .2s ease;
+}
+.hl-status-badge.live { border-color: rgba(0, 229, 255, .35); background: rgba(8, 47, 73, .58); color: #67e8f9; }
+.hl-status-dot { width: 7px; height: 7px; border-radius: 50%; background: #64748b; }
+.hl-status-dot.live { background: var(--hl-cyan); box-shadow: 0 0 0 4px rgba(0, 229, 255, .14); }
+.hl-settings-button {
+  width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid rgba(255,255,255,.1);
+  border-radius: 10px; background: rgba(30, 41, 59, .6); color: #cbd5e1; cursor: pointer; font-size: 15px;
+}
+.hl-settings-button:hover { background: #1e293b; color: #fff; }
+.hl-shell { max-width: 1240px; margin: 0 auto; }
+.hl-main { display: flex; flex-direction: column; gap: 20px; padding-top: 24px; }
+.hl-panel {
+  position: relative; overflow: hidden; min-height: 610px; display: flex; flex-direction: column;
+  border: 1px solid rgba(255,255,255,.08); border-radius: 25px; background: rgba(19,25,39,.7);
+  box-shadow: var(--hl-shadow); backdrop-filter: blur(16px);
+}
+.hl-action-row {
+  justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 16px 22px;
+  border-bottom: 1px solid rgba(148,163,184,.12); background: rgba(2,6,23,.42);
+}
+.hl-action-left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hl-pill {
+  gap: 7px; padding: 6px 10px; border: 1px solid #1e293b; border-radius: 999px;
+  background: rgba(2,6,23,.72); color: #cbd5e1; font-size: 10px; font-weight: 600;
+}
+.hl-pill-icon { color: var(--hl-cyan); font-size: 12px; }
+.hl-pill.voice .hl-pill-icon { color: #c084fc; }
+.hl-latency { gap: 6px; color: #94a3b8; font-size: 10px; }
+.hl-latency-icon { color: #fbbf24; font-size: 14px; }
+.hl-latency strong { color: #e2e8f0; }
+.hl-workspace-grid { flex: 1; min-height: 0; gap: 0 !important; align-items: stretch !important; }
+.hl-visual-column, .hl-transcript-column { min-width: 0 !important; padding: 0 !important; }
+.hl-visual-column { border-right: 1px solid rgba(148,163,184,.12); }
+.hl-visualizer {
+  position: relative; min-height: 475px; display: flex; flex-direction: column; align-items: center; justify-content: space-between;
+  overflow: hidden; padding: 24px 28px 20px; background: linear-gradient(180deg, #020617, rgba(15,23,42,.7), #020617);
+}
+.hl-visualizer::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(circle at center, rgba(66,133,244,.2), rgba(161,66,244,.1) 40%, transparent 70%);
+  opacity: .55;
+}
+.hl-ambient-glow { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(circle at center, rgba(0,229,255,.17), transparent 62%); opacity: .35; transition: .6s ease; }
+.hl-camera-feed { position: absolute; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #020617; }
+.hl-camera-feed.hidden, .hl-hidden { display: none !important; }
+.hl-camera-feed video { width: 100%; height: 100%; object-fit: cover; opacity: .64; transform: scaleX(-1); }
+.hl-camera-label { position: absolute; top: 15px; left: 15px; display: flex; align-items: center; gap: 7px; padding: 7px 10px; border: 1px solid #334155; border-radius: 999px; background: rgba(2,6,23,.82); color: #67e8f9; font-size: 10px; }
+.hl-camera-label span { width: 7px; height: 7px; border-radius: 50%; background: #ef4444; box-shadow: 0 0 0 3px rgba(239,68,68,.15); }
+.hl-camera-frame { position: absolute; inset: 15px; border: 2px solid rgba(34,211,238,.2); border-radius: 14px; pointer-events: none; }
+.hl-orb-area { position: relative; z-index: 20; display: flex; flex-direction: column; align-items: center; justify-content: center; margin: auto; padding: 20px 0; }
+#gemini-canvas { width: 280px; height: 280px; border-radius: 50%; cursor: pointer; filter: drop-shadow(0 20px 45px rgba(66,133,244,.18)); transition: transform .4s ease; }
+#gemini-canvas:hover { transform: scale(1.04); }
+.hl-orb-core {
+  position: absolute; width: 112px; height: 112px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  border: 1px solid rgba(100,116,139,.6); border-radius: 50%; background: rgba(2,6,23,.82); color: #fff; cursor: pointer;
+  box-shadow: inset 0 0 26px rgba(15,23,42,.8); transition: .3s ease;
+}
+.hl-orb-core:hover { border-color: var(--hl-cyan); box-shadow: 0 0 28px rgba(0,229,255,.16), inset 0 0 26px rgba(15,23,42,.8); }
+.hl-orb-icon { color: var(--hl-cyan); font-size: 27px; line-height: 1; }
+.hl-orb-subtext { margin-top: 5px; color: #94a3b8; font-size: 9px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.hl-session-copy { max-width: 390px; text-align: center; }
+.hl-session-title { color: #fff; font-size: 19px; font-weight: 800; letter-spacing: -.02em; }
+.hl-session-subtitle { margin-top: 5px; color: #94a3b8; font-size: 10px; line-height: 1.6; }
+.hl-mode-indicator {
+  position: relative; z-index: 20; gap: 8px; padding: 8px 13px; border: 1px solid #1e293b; border-radius: 14px;
+  background: rgba(15,23,42,.9); color: #cbd5e1; box-shadow: 0 8px 20px rgba(0,0,0,.22); font-size: 10px;
+}
+.hl-mode-dot { width: 7px; height: 7px; border-radius: 50%; background: #34d399; }
+.hl-transcript-column {
+  display: flex; flex-direction: column; justify-content: space-between; gap: 15px; padding: 20px !important;
+  background: rgba(2,6,23,.56);
+}
+.hl-transcript-head { display: flex; align-items: center; justify-content: space-between; padding-bottom: 12px; border-bottom: 1px solid rgba(148,163,184,.12); }
+.hl-transcript-title { gap: 8px; color: #cbd5e1; font-size: 10px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }
+.hl-transcript-title-icon { color: #c084fc; font-size: 15px; }
+.hl-transcript-actions { gap: 5px; }
+.hl-transcript-action { width: 27px; height: 27px; display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; color: #94a3b8; cursor: pointer; font-size: 13px; }
+.hl-transcript-action:hover { background: #1e293b; color: #fff; }
+.hl-transcript-feed {
+  flex: 1; min-height: 260px; max-height: 390px; overflow-y: auto; display: flex; flex-direction: column; gap: 11px;
+  padding: 14px; border: 1px solid rgba(148,163,184,.12); border-radius: 15px; background: rgba(15,23,42,.5);
+}
+.hl-empty-transcript { min-height: 220px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; color: #64748b; text-align: center; font-size: 10px; }
+.hl-empty-icon { margin-bottom: 9px; color: #334155; font-size: 27px; }
+.hl-message { display: flex; flex-direction: column; max-width: 90%; gap: 4px; }
+.hl-message.user { align-self: flex-end; align-items: flex-end; }
+.hl-message.agent, .hl-message.system { align-self: flex-start; align-items: flex-start; }
+.hl-message-meta { display: flex; gap: 8px; color: #64748b; font-size: 9px; }
+.hl-message-agent { color: #67e8f9; font-weight: 800; }
+.hl-message-bubble { padding: 8px 11px; border: 1px solid rgba(71,85,105,.62); border-radius: 13px 13px 13px 3px; background: #1e293b; color: #f1f5f9; font-size: 10px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+.hl-message.user .hl-message-bubble { border: 0; border-radius: 13px 13px 3px 13px; background: linear-gradient(135deg, #2563eb, #9333ea); color: #fff; }
+.hl-message.system .hl-message-bubble { border-color: rgba(161,66,244,.25); background: rgba(88,28,135,.22); color: #d8b4fe; font-size: 9px; }
+.hl-text-form { position: relative; display: flex; align-items: center; }
+.hl-text-input { width: 100%; padding: 10px 39px 10px 13px; border: 1px solid #1e293b; border-radius: 11px; outline: none; background: #0f172a; color: #fff; font-size: 10px; }
+.hl-text-input::placeholder { color: #64748b; }
+.hl-text-input:focus { border-color: #a142f4; box-shadow: 0 0 0 3px rgba(161,66,244,.13); }
+.hl-text-submit { position: absolute; right: 5px; width: 27px; height: 27px; display: grid; place-items: center; border: 0; border-radius: 8px; background: linear-gradient(135deg, #2563eb, #9333ea); color: #fff; cursor: pointer; font-size: 14px; }
+.hl-event-log { min-height: 14px; overflow: hidden; color: #64748b; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.hl-control-dock { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; padding: 15px 18px; border-top: 1px solid rgba(148,163,184,.12); background: rgba(2,6,23,.9); }
+.hl-control-group { gap: 8px; flex-wrap: wrap; }
+.hl-control {
+  gap: 7px; padding: 9px 12px; border: 1px solid #1e293b; border-radius: 10px; background: #0f172a; color: #cbd5e1;
+  cursor: pointer; font-size: 10px; font-weight: 800; transition: .18s ease;
+}
+.hl-control:hover:not(:disabled) { border-color: #475569; background: #1e293b; color: #fff; }
+.hl-control:disabled { opacity: .4; cursor: not-allowed; }
+.hl-control-icon { color: #94a3b8; font-size: 14px; }
+.hl-control-icon.cyan { color: #22d3ee; }
+.hl-control-icon.purple { color: #c084fc; }
+.hl-main-action {
+  gap: 8px; padding: 10px 17px; border: 0; border-radius: 10px; background: linear-gradient(135deg, #2563eb, #9333ea, #06b6d4);
+  color: #fff; box-shadow: 0 10px 22px rgba(126,34,206,.25); cursor: pointer; font-size: 10px; font-weight: 900; transition: .18s ease;
+}
+.hl-main-action:hover { filter: brightness(1.12); transform: translateY(-1px); }
+.hl-main-action.connected { background: #dc2626; box-shadow: 0 10px 22px rgba(220,38,38,.2); }
+.hl-server-message { max-width: 1240px; margin: 9px auto 0 !important; color: #64748b !important; font-size: 9px !important; }
+.hl-server-hint { max-width: 1240px; margin: 0 auto !important; color: #475569 !important; font-size: 9px !important; }
+.hl-footer { max-width: 1240px; margin: 18px auto 0; padding-top: 13px; border-top: 1px solid rgba(148,163,184,.1); color: #64748b; text-align: center; font-size: 9px; }
+.hl-settings-modal {
+  position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 18px;
+  background: rgba(2,6,23,.82); backdrop-filter: blur(12px);
+}
+.hl-settings-card { width: min(100%, 480px); padding: 22px; border: 1px solid rgba(255,255,255,.1); border-radius: 23px; background: rgba(19,25,39,.9); box-shadow: var(--hl-shadow); }
+.hl-settings-head { display: flex; align-items: center; justify-content: space-between; padding-bottom: 14px; border-bottom: 1px solid rgba(148,163,184,.12); }
+.hl-settings-title { display: flex; align-items: center; gap: 8px; color: #fff; font-size: 14px; font-weight: 900; }
+.hl-settings-title-icon { color: #c084fc; font-size: 17px; }
+.hl-close-settings { width: 27px; height: 27px; border: 0; border-radius: 8px; background: transparent; color: #94a3b8; cursor: pointer; font-size: 18px; }
+.hl-close-settings:hover { background: #1e293b; color: #fff; }
+.hl-setting-group { margin-top: 16px; }
+.hl-setting-label { display: block; margin-bottom: 6px; color: #94a3b8; font-size: 9px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }
+.hl-setting-select, .hl-setting-input { width: 100%; padding: 10px 12px; border: 1px solid #1e293b; border-radius: 10px; outline: none; background: #0f172a; color: #e2e8f0; font-size: 10px; }
+.hl-setting-select:focus, .hl-setting-input:focus { border-color: #a142f4; box-shadow: 0 0 0 3px rgba(161,66,244,.12); }
+.hl-range-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; color: #94a3b8; font-size: 10px; }
+.hl-range { width: 100%; height: 5px; accent-color: #a142f4; }
+.hl-apply-settings { width: 100%; margin-top: 18px; padding: 11px; border: 0; border-radius: 10px; background: linear-gradient(135deg, #2563eb, #9333ea); color: #fff; cursor: pointer; font-size: 10px; font-weight: 900; }
+.hl-internal { position: fixed !important; left: -10000px !important; top: -10000px !important; width: 1px !important; height: 1px !important; opacity: 0 !important; pointer-events: none !important; overflow: hidden !important; }
+@media (max-width: 900px) {
+  .gradio-container { padding: 0 12px 24px !important; }
+  .hl-app-header { padding: 0 13px; }
+  .hl-tagline, .hl-status-badge { display: none; }
+  .hl-main { padding-top: 15px; }
+  .hl-panel { min-height: auto; }
+  .hl-action-row { padding: 13px 15px; }
+  .hl-visual-column { border-right: 0; border-bottom: 1px solid rgba(148,163,184,.12); }
+  .hl-visualizer { min-height: 410px; padding: 16px 18px; }
+  #gemini-canvas { width: 240px; height: 240px; }
+  .hl-orb-core { width: 96px; height: 96px; }
+  .hl-transcript-column { min-height: 425px; padding: 16px !important; }
+  .hl-control-dock { align-items: stretch; }
+  .hl-control-group { width: 100%; }
+  .hl-main-action { width: 100%; justify-content: center; }
+}
 """
 
 
-LIVEKIT_CLIENT_JS = f"""
-() => {{
-  const CDN = {LIVEKIT_CLIENT_CDN!r};
-  let room = null;
-  let observedToken = "";
-  let loadingClient = null;
-  let microphoneEnabled = false;
-  let speakerMuted = false;
+LIVEKIT_CLIENT_JS = """
+() => {
+  const CDN = "https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js";
+  const state = {
+    room: null,
+    client: null,
+    observedToken: "",
+    loadingClient: null,
+    microphoneEnabled: false,
+    speakerMuted: false,
+    cameraStream: null,
+    status: "idle",
+    model: "Gemini 2.0 Flash Voice",
+    voice: "Aoede (Warm & Conversational)",
+    userName: "Hamza",
+    canvasAnimation: null,
+    canvasVisible: true,
+    lastCanvasFrame: 0,
+    audioPhase: 0,
+    transcript: []
+  };
   const transcriptEntries = new Map();
-
   const $ = (selector) => document.querySelector(selector);
-  const setText = (selector, text) => {{ const node = $(selector); if (node) node.textContent = text; }};
-
-  function setControlDisabled(selector, disabled) {{
-    const control = $(selector);
-    if (control) control.disabled = disabled;
-  }}
-
-  function clearTranscript() {{
-    transcriptEntries.clear();
-    const list = $("#lk-transcript-list");
-    if (!list) return;
-    list.replaceChildren();
-    const empty = document.createElement("div");
-    empty.id = "lk-transcript-empty";
-    empty.className = "transcript-empty";
-    empty.textContent = "Your conversation will appear here.";
-    list.appendChild(empty);
-  }}
-
-  function appendTranscript(text, isUser, isFinal = true, segmentId = "") {{
-    const cleanText = String(text || "").trim();
-    if (!cleanText) return;
-    const list = $("#lk-transcript-list");
-    if (!list) return;
-    $("#lk-transcript-empty")?.remove();
-    const role = isUser ? "user" : "agent";
-    const key = segmentId || `${{role}}-${{Date.now()}}-${{Math.random()}}`;
-    let entry = transcriptEntries.get(key);
-    if (!entry) {{
-      const wrapper = document.createElement("div");
-      wrapper.className = `transcript-entry ${{role}}`;
-      const speaker = document.createElement("div");
-      speaker.className = "transcript-speaker";
-      speaker.textContent = isUser ? "You" : "Agent";
-      const bubble = document.createElement("div");
-      bubble.className = "transcript-bubble";
-      wrapper.append(speaker, bubble);
-      list.appendChild(wrapper);
-      entry = {{ wrapper, bubble }};
-      transcriptEntries.set(key, entry);
-    }}
-    entry.bubble.textContent = cleanText;
-    entry.wrapper.classList.toggle("interim", !isFinal);
-    if (isFinal) transcriptEntries.delete(key);
-    list.scrollTop = list.scrollHeight;
-  }}
-
-  function setSpeakerMuted(muted) {{
-    speakerMuted = muted;
-    $("#lk-audio-sink")?.querySelectorAll("audio, video").forEach((element) => {{ element.muted = muted; }});
-    const button = $("#lk-speaker-button");
-    if (button) button.textContent = muted ? "Unmute speaker" : "Mute speaker";
-  }}
-
-  function readGradioValue(selector) {{
+  const setText = (selector, value) => { const node = $(selector); if (node) node.textContent = value; };
+  const buttonFor = (selector) => { const root = $(selector); if (!root) return null; return root.matches("button") ? root : root.querySelector("button"); };
+  const clickGradio = (selector) => { const button = buttonFor(selector); if (button) { button.click(); return true; } return false; };
+  const readGradioValue = (selector) => {
     const root = $(selector);
     if (!root) return "";
-    const field = root.matches("textarea, input") ? root : root.querySelector("textarea, input");
-    return field ? field.value : (root.dataset.value || "");
-  }}
+    const field = root.matches("input, textarea") ? root : root.querySelector("input, textarea");
+    return field ? field.value : "";
+  };
+  const setDisabled = (selector, disabled) => { const node = $(selector); if (node) node.disabled = disabled; };
 
-  function setConsoleState(label, live = false) {{
-    const badge = $("#lk-connection-status");
-    if (badge) {{
-      badge.classList.toggle("live", live);
-      badge.innerHTML = `<span class="state-dot"></span>${{label}}`;
-    }}
-  }}
+  function setHeaderStatus(connected) {
+    const badge = $("#header-status-badge");
+    const dot = $("#status-dot");
+    const ping = $("#status-ping");
+    if (badge) badge.classList.toggle("live", connected);
+    if (dot) dot.classList.toggle("live", connected);
+    if (ping) ping.classList.toggle("hl-hidden", !connected);
+    setText("#status-text", connected ? "Live Room Active" : "Ready to Connect");
+  }
 
-  function setListeningState(label, live = false) {{
-    const badge = $("#lk-listening-status");
-    if (badge) {{
-      badge.classList.toggle("live", live);
-      badge.innerHTML = `<span class="state-dot"></span>${{label}}`;
-    }}
-  }}
+  function setStatus(status, title, subtitle) {
+    state.status = status;
+    setText("#session-title", title);
+    setText("#session-subtitle", subtitle);
+    const mode = status === "listening" ? "VAD Auto-detection Enabled" : status === "speaking" ? "HamzaLive Speaking" : status === "thinking" ? "Processing Response" : status === "muted" ? "Microphone Muted" : "VAD Auto-detection Enabled";
+    setText("#mode-indicator-text", mode);
+    const glow = $("#ambient-glow");
+    if (glow) glow.style.opacity = status === "listening" || status === "speaking" ? ".8" : ".35";
+  }
 
-  function setConsoleCopy(title, subtitle) {{
-    setText("#lk-console-copy", title);
-    setText("#lk-console-subcopy", subtitle);
-  }}
+  function setMainAction(connected, connecting = false) {
+    const button = $("#btn-main-session");
+    if (!button) return;
+    button.classList.toggle("connected", connected || connecting);
+    setText("#btn-main-text", connecting ? "Connecting..." : connected ? "End HamzaLive Session" : "Start HamzaLive Session");
+    setText("#btn-main-icon", connected ? "■" : "✦");
+  }
 
-  function appendLog(message) {{
-    const log = $("#lk-event-log");
-    if (!log) return;
-    const stamp = new Date().toLocaleTimeString([], {{ hour: "2-digit", minute: "2-digit" }});
-    log.textContent = `${{stamp}}  ·  ${{message}}`;
-  }}
+  function renderOrb(timestamp = 0) {
+    const canvas = $("#gemini-canvas");
+    if (!canvas) return;
+    if (!state.canvasVisible) { state.canvasAnimation = null; return; }
+    if (timestamp - state.lastCanvasFrame < 33) {
+      state.canvasAnimation = window.requestAnimationFrame(renderOrb);
+      return;
+    }
+    state.lastCanvasFrame = timestamp;
+    const ctx = canvas.getContext("2d");
+    const center = canvas.width / 2;
+    state.audioPhase += .035;
+    let radius = 78;
+    let amplitude = 4;
+    if (state.status === "listening") { radius = 84 + Math.sin(state.audioPhase * 2) * 5; amplitude = 11; }
+    else if (state.status === "thinking") { radius = 80 + Math.cos(state.audioPhase * 4) * 4; amplitude = 8; }
+    else if (state.status === "speaking") { radius = 90 + Math.sin(state.audioPhase * 5) * 11; amplitude = 18; }
+    else if (state.status === "muted") { radius = 74; amplitude = 2; }
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const glow = ctx.createRadialGradient(center, center, radius * .35, center, center, radius * 1.55);
+    if (state.status === "listening") {
+      glow.addColorStop(0, "rgba(0,229,255,.82)"); glow.addColorStop(.5, "rgba(66,133,244,.42)"); glow.addColorStop(1, "rgba(161,66,244,0)");
+    } else if (state.status === "thinking") {
+      glow.addColorStop(0, "rgba(161,66,244,.9)"); glow.addColorStop(.5, "rgba(251,188,5,.42)"); glow.addColorStop(1, "rgba(66,133,244,0)");
+    } else if (state.status === "speaking") {
+      glow.addColorStop(0, "rgba(66,133,244,.9)"); glow.addColorStop(.45, "rgba(161,66,244,.7)"); glow.addColorStop(.82, "rgba(0,229,255,.4)"); glow.addColorStop(1, "rgba(0,0,0,0)");
+    } else {
+      glow.addColorStop(0, "rgba(51,65,85,.6)"); glow.addColorStop(1, "rgba(15,23,42,0)");
+    }
+    ctx.beginPath(); ctx.arc(center, center, radius * 1.4, 0, Math.PI * 2); ctx.fillStyle = glow; ctx.fill();
+    ctx.beginPath();
+    const points = 120;
+    for (let i = 0; i <= points; i += 1) {
+      const angle = (i / points) * Math.PI * 2;
+      const wave = Math.sin(angle * 6 + state.audioPhase) * amplitude + Math.cos(angle * 4 - state.audioPhase * 1.5) * (amplitude / 2);
+      const currentRadius = radius + wave;
+      const x = center + Math.cos(angle) * currentRadius;
+      const y = center + Math.sin(angle) * currentRadius;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    const fill = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+    if (state.room) { fill.addColorStop(0, "#4285f4"); fill.addColorStop(.5, "#a142f4"); fill.addColorStop(1, "#00e5ff"); }
+    else { fill.addColorStop(0, "#334155"); fill.addColorStop(1, "#0f172a"); }
+    ctx.fillStyle = fill; ctx.fill();
+    state.canvasAnimation = window.requestAnimationFrame(renderOrb);
+  }
 
-  async function loadClient() {{
+  function appendTranscript(speaker, message, isInterim = false) {
+    const clean = String(message || "").trim();
+    if (!clean) return;
+    const feed = $("#transcript-feed");
+    if (!feed) return;
+    $("#empty-transcript-msg")?.remove();
+    const isAssistant = speaker === "HamzaLive" || speaker === "Agent";
+    const isSystem = speaker === "System";
+    const key = speaker + "-" + Date.now() + "-" + Math.random();
+    state.transcript.push({ speaker, message: clean, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) });
+    const row = document.createElement("div");
+    row.className = "hl-message " + (isAssistant ? "agent" : isSystem ? "system" : "user");
+    const meta = document.createElement("div");
+    meta.className = "hl-message-meta";
+    const name = document.createElement("span");
+    name.className = isAssistant ? "hl-message-agent" : "";
+    name.textContent = speaker;
+    const time = document.createElement("span");
+    time.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    meta.append(name, time);
+    const bubble = document.createElement("div");
+    bubble.className = "hl-message-bubble";
+    bubble.textContent = clean;
+    if (isInterim) bubble.style.opacity = ".62";
+    row.append(meta, bubble);
+    feed.appendChild(row);
+    feed.scrollTop = feed.scrollHeight;
+    transcriptEntries.set(key, row);
+  }
+
+  function clearTranscript() {
+    state.transcript = [];
+    transcriptEntries.clear();
+    const feed = $("#transcript-feed");
+    if (!feed) return;
+    feed.innerHTML = '<div id="empty-transcript-msg" class="hl-empty-transcript"><div class="hl-empty-icon">✦</div><p>Your real-time conversation transcript will stream here seamlessly.</p></div>';
+  }
+
+  function downloadTranscript() {
+    if (!state.transcript.length) return;
+    const content = state.transcript.map((item) => "[" + item.time + "] " + item.speaker + ": " + item.message).join("\\n");
+    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "hamzalive-transcript-" + new Date().toISOString().slice(0, 10) + ".txt";
+    link.click();
+    URL.revokeObjectURL(link.href);
+  }
+
+  function setMicUi() {
+    setText("#btn-mic-text", state.microphoneEnabled ? "Mute Mic" : "Unmute Mic");
+    setText("#btn-mic-icon", state.microphoneEnabled ? "♩" : "♩");
+  }
+
+  function setSpeakerUi() {
+    setText("#btn-speaker-text", state.speakerMuted ? "Muted" : "Speaker On");
+    setText("#btn-speaker-icon", state.speakerMuted ? "◌" : "◉");
+  }
+
+  function stopCamera() {
+    if (state.cameraStream) state.cameraStream.getTracks().forEach((track) => track.stop());
+    state.cameraStream = null;
+    const video = $("#camera-video");
+    if (video) video.srcObject = null;
+    $("#camera-feed-container")?.classList.add("hl-hidden");
+    setText("#btn-camera-icon", "▣");
+    setText("#mode-indicator-text", state.status === "listening" ? "VAD Auto-detection Enabled" : "VAD Auto-detection Enabled");
+  }
+
+  async function toggleCamera() {
+    if (!state.room) return;
+    if (state.cameraStream) {
+      stopCamera();
+      appendTranscript("System", "Vision preview disconnected.");
+      return;
+    }
+    try {
+      state.cameraStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      const video = $("#camera-video");
+      video.srcObject = state.cameraStream;
+      $("#camera-feed-container")?.classList.remove("hl-hidden");
+      setText("#btn-camera-icon", "■");
+      setText("#mode-indicator-text", "Vision Stream Preview Active");
+      appendTranscript("System", "Multimodal vision preview connected.");
+    } catch (error) {
+      appendLog(error?.message || "Camera permission was not granted");
+    }
+  }
+
+  function appendLog(message) {
+    const stamp = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    setText("#hl-event-log", stamp + " · " + message);
+  }
+
+  function setLatency(connected) { setText("#latency-text", connected ? "Live" : "-- ms"); }
+
+  async function loadClient() {
     if (window.LivekitClient || window.LiveKitClient) return window.LivekitClient || window.LiveKitClient;
-    if (loadingClient) return loadingClient;
-    loadingClient = new Promise((resolve, reject) => {{
+    if (state.loadingClient) return state.loadingClient;
+    state.loadingClient = new Promise((resolve, reject) => {
       const script = document.createElement("script");
-      script.src = CDN;
-      script.async = true;
+      script.src = CDN; script.async = true;
       script.onload = () => resolve(window.LivekitClient || window.LiveKitClient);
       script.onerror = () => reject(new Error("Could not load the LiveKit browser client."));
       document.head.appendChild(script);
-    }});
-    return loadingClient;
-  }}
+    });
+    return state.loadingClient;
+  }
 
-  function clearAudio() {{
-    const sink = $("#lk-audio-sink");
-    if (sink) sink.replaceChildren();
-  }}
+  function setAllControls(disabled) {
+    setDisabled("#btn-mic", disabled);
+    setDisabled("#btn-camera", disabled);
+    setDisabled("#btn-speaker", disabled);
+  }
 
-  function updateParticipantCount() {{
-    const count = room ? room.remoteParticipants.size : 0;
-    setText("#lk-session-meta", room ? `${{count + 1}} participant${{count === 0 ? "" : "s"}} in room` : "No active room");
-  }}
+  async function disconnect(reason = "Disconnected", requestBackend = false) {
+    const activeRoom = state.room;
+    state.room = null;
+    if (activeRoom) { try { await activeRoom.disconnect(); } catch (_) {} }
+    stopCamera();
+    state.microphoneEnabled = false;
+    state.speakerMuted = false;
+    setHeaderStatus(false);
+    setLatency(false);
+    setMicUi();
+    setSpeakerUi();
+    setAllControls(true);
+    setStatus("idle", reason === "Session ended" ? "Session ended safely" : "Tap Orb to Start HamzaLive", reason === "Session ended" ? "Start a new session whenever you’re ready." : "Experience real-time natural conversational AI with speech, vision, and instant responses.");
+    setMainAction(false);
+    setText("#orb-subtext", "Start");
+    setText("#hl-event-log", reason);
+    if (requestBackend) window.setTimeout(() => clickGradio("#hl-end-session"), 0);
+  }
 
-  async function disconnect(reason = "Disconnected") {{
-    const activeRoom = room;
-    room = null;
-    if (activeRoom) {{ try {{ activeRoom.disconnect(); }} catch (_) {{}} }}
-    microphoneEnabled = false;
-    speakerMuted = false;
-    clearAudio();
-    clearTranscript();
-    const ended = reason === "Session ended";
-    setConsoleState(ended ? "Ended" : "Ready", false);
-    setListeningState("Muted", false);
-    setConsoleCopy(
-      ended ? "Session ended safely" : "Welcome — your session is ready",
-      ended ? "Whenever you’re ready, start a new session on the right." : "Start a session on the right, then enable your microphone.",
-    );
-    updateParticipantCount();
-    setText("#lk-room-id", "Room not connected");
-    appendLog(reason);
-    const mic = $("#lk-mic-button");
-    if (mic) {{ mic.textContent = "Unmute microphone"; mic.classList.remove("primary"); }}
-    const speaker = $("#lk-speaker-button");
-    if (speaker) speaker.textContent = "Mute speaker";
-    setControlDisabled("#lk-mic-button", true);
-    setControlDisabled("#lk-speaker-button", true);
-    setControlDisabled("#lk-disconnect-button", true);
-    const orb = $("#lk-voice-orb");
-    if (orb) orb.classList.remove("speaking");
-  }}
-
-  async function connect(url, token) {{
-    try {{
+  async function connect(url, token) {
+    try {
       await disconnect("Opening LiveKit room");
-      setConsoleState("Connecting", false);
-      setConsoleCopy("Connecting to LiveKit…", "Preparing the voice channel and agent dispatch.");
+      setMainAction(false, true);
+      setStatus("thinking", "Connecting to HamzaLive...", "Preparing the secure WebRTC voice channel.");
       appendLog("Connecting to room");
-      const client = await loadClient();
-      if (!client) throw new Error("LiveKit browser client is unavailable.");
-      room = new client.Room({{ adaptiveStream: true, dynacast: true }});
-      room.on("trackSubscribed", (track) => {{
-        if (track.kind === "audio") {{
+      state.client = await loadClient();
+      if (!state.client) throw new Error("LiveKit browser client is unavailable.");
+      state.room = new state.client.Room({ adaptiveStream: true, dynacast: true });
+      state.room.on("trackSubscribed", (track) => {
+        if (track.kind === "audio") {
           const element = track.attach();
           element.autoplay = true;
-          element.muted = speakerMuted;
-          $("#lk-audio-sink")?.appendChild(element);
+          element.muted = state.speakerMuted;
+          document.body.appendChild(element);
           appendLog("Agent audio connected");
-        }}
-      }});
-      room.on("trackUnsubscribed", (track) => track.detach());
-      room.on("participantConnected", () => {{ updateParticipantCount(); appendLog("Agent joined the room"); }});
-      room.on("participantDisconnected", () => {{ updateParticipantCount(); appendLog("Participant left the room"); }});
-      room.on("activeSpeakersChanged", (speakers) => {{
-        const speaking = speakers && speakers.length > 0;
-        $("#lk-voice-orb")?.classList.toggle("speaking", speaking);
-      }});
-      room.on("disconnected", () => {{ disconnect("LiveKit room disconnected"); }});
-      room.on("dataReceived", (payload, participant, kind, topic) => {{
-        try {{
-          const message = new TextDecoder().decode(payload);
-          appendLog(`${{topic || "Data"}}: ${{message.slice(0, 90)}}`);
-        }} catch (_) {{ appendLog("Received a LiveKit data message"); }}
-      }});
-      if (room.registerTextStreamHandler) {{
-        room.registerTextStreamHandler("lk.transcription", async (reader, participantInfo) => {{
-          try {{
+        }
+      });
+      state.room.on("trackUnsubscribed", (track) => {
+        track.detach().forEach((element) => element.remove());
+      });
+      state.room.on("activeSpeakersChanged", (speakers) => {
+        if (speakers && speakers.length && state.microphoneEnabled) setStatus("speaking", "HamzaLive Speaking...", "Streaming the agent response back in real time.");
+        else if (state.microphoneEnabled) setStatus("listening", "HamzaLive Listening...", "Speak naturally into your microphone or toggle vision stream.");
+      });
+      state.room.on("disconnected", () => disconnect("LiveKit room disconnected"));
+      if (state.room.registerTextStreamHandler) {
+        state.room.registerTextStreamHandler("lk.transcription", async (reader, participantInfo) => {
+          try {
             const message = await reader.readAll();
-            const attributes = reader.info?.attributes || {{}};
-            const isUser = participantInfo?.identity === room.localParticipant.identity;
-            const isFinal = attributes["lk.transcription_final"] !== "false";
-            const segmentId = `${{isUser ? "user" : "agent"}}-${{attributes["lk.segment_id"] || Date.now()}}`;
-            appendTranscript(message, isUser, isFinal, segmentId);
-            appendLog(`${{isUser ? "Speech recognized" : "Agent transcript"}}: ${{message.slice(0, 70)}}`);
-          }} catch (error) {{ appendLog(error?.message || "Could not read the transcript"); }}
-        }});
-      }} else {{
-        room.on("transcriptionReceived", (segments, participant) => {{
-          (segments || []).forEach((segment) => {{
-            const isUser = participant?.identity === room.localParticipant.identity;
-            appendTranscript(segment.text, isUser, segment.final ?? true, `${{isUser ? "user" : "agent"}}-${{segment.id || segment.segmentId || Date.now()}}`);
-          }});
-        }});
-      }}
-      await room.connect(url, token);
-      await room.localParticipant.setMicrophoneEnabled(false);
-      microphoneEnabled = false;
-      setControlDisabled("#lk-mic-button", false);
-      setControlDisabled("#lk-speaker-button", false);
-      setControlDisabled("#lk-disconnect-button", false);
-      setSpeakerMuted(false);
-      setConsoleState("Connected", true);
-      setListeningState("Muted", false);
-      setText("#lk-room-id", `Room: ${{readGradioValue("#lk-room-input")}}`);
-      setConsoleCopy("Go ahead — just talk.", "Unmute your microphone and speak naturally to the voice agent.");
-      updateParticipantCount();
+            const attributes = reader.info?.attributes || {};
+            const isUser = participantInfo?.identity === state.room.localParticipant.identity;
+            const finalText = attributes["lk.transcription_final"] !== "false";
+            appendTranscript(isUser ? state.userName : "HamzaLive", message, !finalText);
+            if (!isUser) setStatus("speaking", "HamzaLive Speaking...", "Streaming the agent response back in real time.");
+            appendLog((isUser ? "Speech recognized" : "Agent transcript") + ": " + message.slice(0, 70));
+          } catch (error) { appendLog(error?.message || "Could not read the transcript"); }
+        });
+      } else {
+        state.room.on("transcriptionReceived", (segments, participant) => {
+          (segments || []).forEach((segment) => {
+            const isUser = participant?.identity === state.room.localParticipant.identity;
+            appendTranscript(isUser ? state.userName : "HamzaLive", segment.text, !(segment.final ?? true));
+          });
+        });
+      }
+      await state.room.connect(url, token);
+      await state.room.localParticipant.setMicrophoneEnabled(false);
+      state.microphoneEnabled = false;
+      setAllControls(false);
+      setHeaderStatus(true);
+      setLatency(true);
+      setMicUi();
+      setSpeakerUi();
+      setMainAction(true);
+      setStatus("muted", "Microphone Muted", "Unmute your microphone to speak with the HamzaLive voice agent.");
+      setText("#orb-subtext", "Live");
       appendLog("Connected · microphone is off");
-    }} catch (error) {{
-      room = null;
-      setConsoleState("Connection error", false);
-      setConsoleCopy("Could not connect", error?.message || "Check the LiveKit URL and token.");
+    } catch (error) {
+      state.room = null;
+      setHeaderStatus(false);
+      setLatency(false);
+      setMainAction(false);
+      setStatus("idle", "Could not connect", error?.message || "Check the LiveKit URL and token.");
+      setAllControls(true);
       appendLog(error?.message || "LiveKit connection failed");
-    }}
-  }}
+    }
+  }
 
-  async function toggleMicrophone() {{
-    if (!room) {{ appendLog("Connect a room first"); return; }}
-    try {{
-      await room.startAudio().catch(() => {{}});
-      microphoneEnabled = !microphoneEnabled;
-      await room.localParticipant.setMicrophoneEnabled(microphoneEnabled);
-      const mic = $("#lk-mic-button");
-      if (mic) {{
-        mic.textContent = microphoneEnabled ? "Mute" : "Unmute microphone";
-        mic.classList.toggle("primary", microphoneEnabled);
-      }}
-      setListeningState(microphoneEnabled ? "Listening" : "Muted", microphoneEnabled);
-      setConsoleCopy(microphoneEnabled ? "Go ahead — just talk." : "You’re connected", microphoneEnabled ? "Your speech is being transcribed live below." : "Unmute your microphone whenever you’re ready.");
-      appendLog(microphoneEnabled ? "Microphone enabled" : "Microphone muted");
-    }} catch (error) {{ appendLog(error?.message || "Microphone permission was not granted"); }}
-  }}
+  async function toggleMic() {
+    if (!state.room) return;
+    try {
+      await state.room.startAudio().catch(() => {});
+      state.microphoneEnabled = !state.microphoneEnabled;
+      await state.room.localParticipant.setMicrophoneEnabled(state.microphoneEnabled);
+      setMicUi();
+      setStatus(state.microphoneEnabled ? "listening" : "muted", state.microphoneEnabled ? "HamzaLive Listening..." : "Microphone Muted", state.microphoneEnabled ? "Speak naturally into your microphone or toggle vision stream." : "Unmute your microphone to continue.");
+      appendLog(state.microphoneEnabled ? "Microphone enabled" : "Microphone muted");
+    } catch (error) { appendLog(error?.message || "Microphone permission was not granted"); }
+  }
 
-  function toggleSpeaker() {{
-    if (!room) {{ appendLog("Connect a room first"); return; }}
-    setSpeakerMuted(!speakerMuted);
-    appendLog(speakerMuted ? "Speaker muted" : "Speaker unmuted");
-  }}
+  function toggleSpeaker() {
+    if (!state.room) return;
+    state.speakerMuted = !state.speakerMuted;
+    document.querySelectorAll("audio, video").forEach((element) => { if (element !== $("#camera-video")) element.muted = state.speakerMuted; });
+    setSpeakerUi();
+    appendLog(state.speakerMuted ? "Speaker muted" : "Speaker unmuted");
+  }
 
-  async function sendDataMessage() {{
-    if (!room) {{ appendLog("Connect a room first"); return; }}
-    const input = $("#lk-data-input");
-    const text = input?.value.trim();
-    if (!text) return;
-    try {{
-      if (!room.localParticipant.sendText) throw new Error("Text input is unavailable in this LiveKit client.");
-      await room.localParticipant.sendText(text, {{ topic: "lk.chat" }});
-      if (input) input.value = "";
-      appendTranscript(text, true, true, `typed-${{Date.now()}}`);
-      appendLog(`Message sent: ${{text.slice(0, 70)}}`);
-    }} catch (error) {{ appendLog(error?.message || "Could not send data signal"); }}
-  }}
+  async function sendText() {
+    if (!state.room) { appendLog("Connect a room first"); return; }
+    const input = $("#text-input");
+    const message = input?.value.trim();
+    if (!message) return;
+    try {
+      await state.room.localParticipant.sendText(message, { topic: "lk.chat" });
+      input.value = "";
+      appendTranscript(state.userName, message);
+      setStatus("thinking", "HamzaLive Thinking...", "Processing your text message.");
+      appendLog("Message sent");
+    } catch (error) { appendLog(error?.message || "Could not send the message"); }
+  }
 
-  function wireConsole() {{
-    const mic = $("#lk-mic-button");
-    if (!mic || mic.dataset.wired === "1") return;
-    mic.dataset.wired = "1";
-    mic.addEventListener("click", toggleMicrophone);
-    $("#lk-speaker-button")?.addEventListener("click", toggleSpeaker);
-    $("#lk-disconnect-button")?.addEventListener("click", () => disconnect("Disconnected by operator"));
-    $("#lk-send-button")?.addEventListener("click", sendDataMessage);
-    $("#lk-clear-transcript")?.addEventListener("click", clearTranscript);
-    $("#lk-data-input")?.addEventListener("keydown", (event) => {{ if (event.key === "Enter") sendDataMessage(); }});
-  }}
+  function toggleSession() {
+    if (state.room || state.observedToken) disconnect("Session ended", true);
+    else clickGradio("#hl-start-session");
+  }
 
-  function syncFromGradio() {{
-    const token = readGradioValue("#lk-token-state");
-    const url = readGradioValue("#lk-url-state") || readGradioValue("#lk-url-input");
-    if (token && token !== observedToken) {{
-      observedToken = token;
-      connect(url, token);
-    }} else if (!token && observedToken) {{
-      observedToken = "";
-      disconnect("Session ended");
-    }}
-  }}
+  function toggleConfigModal() { $("#config-modal")?.classList.toggle("hl-hidden"); }
+  function updateModelSelection() {
+    state.model = $("#select-model")?.value || state.model;
+    setText("#display-model-name", state.model);
+  }
+  function updateVoiceSelection() {
+    state.voice = $("#select-voice")?.value || state.voice;
+    setText("#display-voice-name", "Voice: " + state.voice);
+  }
+  function applySettings() {
+    state.userName = $("#user-display-name")?.value.trim() || "Hamza";
+    toggleConfigModal();
+    appendLog("Settings applied");
+  }
 
-  const boot = () => {{
-    wireConsole();
-    window.setInterval(syncFromGradio, 450);
-    const observer = new MutationObserver(() => wireConsole());
-    observer.observe(document.body, {{ childList: true, subtree: true }});
-  }};
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot); else boot();
-}}
+  function wire() {
+    const orb = $("#gemini-canvas");
+    if (orb && orb.dataset.wired !== "1") { orb.dataset.wired = "1"; orb.addEventListener("click", toggleSession); }
+    const core = $("#orb-core-btn");
+    if (core && core.dataset.wired !== "1") { core.dataset.wired = "1"; core.addEventListener("click", toggleSession); }
+    const main = $("#btn-main-session");
+    if (main && main.dataset.wired !== "1") { main.dataset.wired = "1"; main.addEventListener("click", toggleSession); }
+    const mic = $("#btn-mic");
+    if (mic && mic.dataset.wired !== "1") { mic.dataset.wired = "1"; mic.addEventListener("click", toggleMic); }
+    const camera = $("#btn-camera");
+    if (camera && camera.dataset.wired !== "1") { camera.dataset.wired = "1"; camera.addEventListener("click", toggleCamera); }
+    const speaker = $("#btn-speaker");
+    if (speaker && speaker.dataset.wired !== "1") { speaker.dataset.wired = "1"; speaker.addEventListener("click", toggleSpeaker); }
+    const settings = $("#settings-button");
+    if (settings && settings.dataset.wired !== "1") { settings.dataset.wired = "1"; settings.addEventListener("click", toggleConfigModal); }
+    const close = $("#close-settings");
+    if (close && close.dataset.wired !== "1") { close.dataset.wired = "1"; close.addEventListener("click", toggleConfigModal); }
+    const apply = $("#apply-settings");
+    if (apply && apply.dataset.wired !== "1") { apply.dataset.wired = "1"; apply.addEventListener("click", applySettings); }
+    const clear = $("#clear-transcript");
+    if (clear && clear.dataset.wired !== "1") { clear.dataset.wired = "1"; clear.addEventListener("click", clearTranscript); }
+    const download = $("#download-transcript");
+    if (download && download.dataset.wired !== "1") { download.dataset.wired = "1"; download.addEventListener("click", downloadTranscript); }
+    const form = $("#text-form");
+    if (form && form.dataset.wired !== "1") { form.dataset.wired = "1"; form.addEventListener("submit", (event) => { event.preventDefault(); sendText(); }); }
+  }
+
+  function syncFromGradio() {
+    const token = readGradioValue("#hl-token-state");
+    const url = readGradioValue("#hl-url-state");
+    if (token && token !== state.observedToken) { state.observedToken = token; connect(url, token); }
+    else if (!token && state.observedToken) { state.observedToken = ""; disconnect("Session ended"); }
+  }
+
+  const boot = () => {
+    wire();
+    renderOrb();
+    window.setInterval(syncFromGradio, 900);
+    if (window.IntersectionObserver) {
+      const visibilityObserver = new IntersectionObserver((entries) => {
+        state.canvasVisible = Boolean(entries[0]?.isIntersecting);
+        if (state.canvasVisible && !state.canvasAnimation) renderOrb();
+      });
+      visibilityObserver.observe($("#gemini-canvas"));
+    }
+  };
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
+  else boot();
+}
 """
 
 
 def build_app() -> gr.Blocks:
-    with gr.Blocks(
-        title="LiveKit Voice Lab",
-    ) as demo:
+    with gr.Blocks(title="HamzaLive - AI Voice Assistant") as demo:
         gr.HTML(
             """
-            <div class="app-shell hero">
-              <div>
-                <div class="eyebrow">LiveKit / browser voice workspace</div>
-                <h1>Voice agent</h1>
-                <p>A LiveKit voice agent you can talk to in the browser — deepgram/nova-3 for hearing, google/gemma-4-31b-it for thinking, inworld/inworld-tts-2 (Ashley) for speaking.</p>
+            <header class="hl-app-header">
+              <div class="hl-brand">
+                <div class="hl-logo"><div class="hl-logo-inner">✦</div></div>
+                <div class="hl-brand-copy">
+                  <div class="hl-brand-line"><span class="hl-brand-name hl-gradient-text">HamzaLive</span><span class="hl-pro">Pro 2.0</span></div>
+                  <div class="hl-tagline">Ultra-low Latency Voice & Vision Multimodal AI</div>
+                </div>
               </div>
-              <div class="hero-mark"><span class="mark">◉</span> Agent workspace</div>
-            </div>
+              <div class="hl-header-actions">
+                <div id="header-status-badge" class="hl-status-badge"><span id="status-dot" class="hl-status-dot"></span><span id="status-ping" class="hl-hidden"></span><span id="status-text">Ready to Connect</span></div>
+                <button id="settings-button" class="hl-settings-button" type="button" title="Voice and model settings">☷</button>
+              </div>
+            </header>
             """
         )
 
-        # The token is deliberately kept out of the visible interface. The
-        # browser-side LiveKit console reads this state after a Python callback
-        # issues a room token.
-        token_state = gr.Textbox(
-            value="",
-            show_label=False,
-            container=False,
-            elem_id="lk-token-state",
-            elem_classes="lk-internal-state",
-        )
-        url_state = gr.Textbox(
-            value=os.getenv("LIVEKIT_URL", ""),
-            show_label=False,
-            container=False,
-            elem_id="lk-url-state",
-            elem_classes="lk-internal-state",
-        )
+        with gr.Column(elem_classes="hl-shell hl-main"):
+            token_state = gr.Textbox(value="", show_label=False, container=False, elem_id="hl-token-state", elem_classes="hl-internal")
+            url_state = gr.Textbox(value=os.getenv("LIVEKIT_URL", ""), show_label=False, container=False, elem_id="hl-url-state", elem_classes="hl-internal")
+            room_input = gr.Textbox(value=DEFAULT_ROOM, show_label=False, container=False, elem_id="hl-room-input", elem_classes="hl-internal")
+            identity_input = gr.Textbox(value=DEFAULT_IDENTITY, show_label=False, container=False, elem_id="hl-identity-input", elem_classes="hl-internal")
 
-        with gr.Row(elem_classes="app-shell"):
-            with gr.Column(scale=8, elem_classes="main-panel"):
-                with gr.Group(elem_classes="surface session-surface"):
-                    gr.HTML(
-                        """
-                        <div id="lk-console-root">
-                          <div class="session-top">
-                            <div>
-                              <div class="section-kicker">Live session</div>
-                              <div class="session-title">Your live conversation</div>
-                            </div>
-                            <div class="session-status-group">
-                              <div id="lk-connection-status" class="session-state"><span class="state-dot"></span>Ready</div>
-                              <div id="lk-listening-status" class="session-state"><span class="state-dot"></span>Muted</div>
-                              <div id="lk-room-id" class="console-subcopy">Room not connected</div>
-                            </div>
-                          </div>
-                          <div class="live-console">
-                            <div class="console-visual">
-                              <div>
-                                <div id="lk-voice-orb" class="voice-orb">🎙</div>
-                                <div id="lk-console-copy" class="console-copy">Go ahead — just talk.</div>
-                                <div id="lk-console-subcopy" class="console-subcopy">Start a session, then unmute your microphone when you’re ready.</div>
+            with gr.Group(elem_classes="hl-panel"):
+                gr.HTML(
+                    """
+                    <div class="hl-action-row">
+                      <div class="hl-action-left">
+                        <div class="hl-pill"><span class="hl-pill-icon">◈</span><span id="display-model-name">Gemini 2.0 Flash Voice</span></div>
+                        <div class="hl-pill voice"><span class="hl-pill-icon">◉</span><span id="display-voice-name">Voice: Aoede (Warm & Conversational)</span></div>
+                      </div>
+                      <div class="hl-latency"><span class="hl-latency-icon">ϟ</span><span>Latency: <strong id="latency-text">-- ms</strong></span></div>
+                    </div>
+                    """
+                )
+                with gr.Row(elem_classes="hl-workspace-grid"):
+                    with gr.Column(scale=7, elem_classes="hl-visual-column"):
+                        gr.HTML(
+                            """
+                            <div id="visualizer-container" class="hl-visualizer">
+                              <div id="ambient-glow" class="hl-ambient-glow"></div>
+                              <div id="camera-feed-container" class="hl-camera-feed hl-hidden">
+                                <video id="camera-video" autoplay muted playsinline></video>
+                                <div class="hl-camera-label"><span></span><span>HamzaLive Vision Stream Active</span></div>
+                                <div class="hl-camera-frame"></div>
                               </div>
-                            </div>
-                            <div class="console-actions">
-                              <button id="lk-mic-button" class="primary call-control" type="button" disabled>Unmute microphone</button>
-                              <button id="lk-speaker-button" class="call-control" type="button" disabled>Mute speaker</button>
-                              <button id="lk-disconnect-button" class="danger call-control" type="button" disabled>End call</button>
-                              <span id="lk-session-meta" class="console-subcopy">No active room</span>
-                            </div>
-                            <div class="data-row">
-                              <input id="lk-data-input" type="text" placeholder="Type a message if you prefer…" aria-label="Type a message to the agent" />
-                              <button id="lk-send-button" type="button">Send message</button>
-                            </div>
-                            <div class="transcript-panel">
-                              <div class="transcript-header">
-                                <div>
-                                  <div class="transcript-title">Live transcript</div>
-                                  <div class="transcript-caption">Speech-to-text and agent replies appear here.</div>
+                              <div class="hl-orb-area">
+                                <div class="hl-canvas-wrap">
+                                  <canvas id="gemini-canvas" width="280" height="280"></canvas>
+                                  <button id="orb-core-btn" class="hl-orb-core" type="button"><span id="orb-icon" class="hl-orb-icon">♩</span><span id="orb-subtext" class="hl-orb-subtext">Start</span></button>
                                 </div>
-                                <button id="lk-clear-transcript" class="transcript-clear" type="button">Clear</button>
+                                <div class="hl-session-copy"><div id="session-title" class="hl-session-title">Tap Orb to Start HamzaLive</div><div id="session-subtitle" class="hl-session-subtitle">Experience real-time natural conversational AI with speech, vision, and instant responses.</div></div>
                               </div>
-                              <div id="lk-transcript-list" class="transcript-list">
-                                <div id="lk-transcript-empty" class="transcript-empty">Your conversation will appear here.</div>
-                              </div>
+                              <div class="hl-mode-indicator"><span class="hl-mode-dot"></span><span id="mode-indicator-text">VAD Auto-detection Enabled</span></div>
                             </div>
-                            <div id="lk-event-log" class="event-log">Waiting for you to start a session.</div>
-                            <div id="lk-audio-sink" aria-hidden="true"></div>
-                          </div>
-                        </div>
-                        """
-                    )
+                            """
+                        )
+                    with gr.Column(scale=5, elem_classes="hl-transcript-column"):
+                        gr.HTML(
+                            """
+                            <div class="hl-transcript-head">
+                              <div class="hl-transcript-title"><span class="hl-transcript-title-icon">▤</span><span>Live Transcript</span></div>
+                              <div class="hl-transcript-actions"><button id="download-transcript" class="hl-transcript-action" type="button" title="Export log">⇩</button><button id="clear-transcript" class="hl-transcript-action" type="button" title="Clear transcript">⌫</button></div>
+                            </div>
+                            <div id="transcript-feed" class="hl-transcript-feed"><div id="empty-transcript-msg" class="hl-empty-transcript"><div class="hl-empty-icon">✦</div><p>Your real-time conversation transcript will stream here seamlessly.</p></div></div>
+                            <form id="text-form" class="hl-text-form"><input id="text-input" class="hl-text-input" type="text" placeholder="Type a message or topic to discuss..." aria-label="Type a message to the agent" /><button class="hl-text-submit" type="submit">↗</button></form>
+                            <div id="hl-event-log" class="hl-event-log">Waiting for you to start a session.</div>
+                            """
+                        )
+                gr.HTML(
+                    """
+                    <div class="hl-control-dock">
+                      <div class="hl-control-group">
+                        <button id="btn-mic" class="hl-control" type="button" disabled><span id="btn-mic-icon" class="hl-control-icon">♩</span><span id="btn-mic-text">Unmute Mic</span></button>
+                        <button id="btn-camera" class="hl-control" type="button" disabled><span id="btn-camera-icon" class="hl-control-icon cyan">▣</span><span>Vision Stream</span></button>
+                        <button id="btn-speaker" class="hl-control" type="button" disabled><span id="btn-speaker-icon" class="hl-control-icon">◉</span><span id="btn-speaker-text">Speaker On</span></button>
+                      </div>
+                      <button id="btn-main-session" class="hl-main-action" type="button"><span id="btn-main-icon">✦</span><span id="btn-main-text">Start HamzaLive Session</span></button>
+                    </div>
+                    """
+                )
 
-            with gr.Column(scale=4, elem_classes="sidebar-panel right-stack"):
-                with gr.Group(elem_classes="surface control-surface"):
-                    gr.HTML(
-                        """
-                        <div class="control-title">Start a session</div>
-                        <div class="control-description">We’ll start the agent, create a secure room connection, and keep your microphone muted until you choose to speak.</div>
-                        """
-                    )
-                    room_input = gr.Textbox(
-                        label="Room name",
-                        value=DEFAULT_ROOM,
-                        placeholder="e.g. product-demo",
-                        elem_id="lk-room-input",
-                    )
-                    identity_input = gr.Textbox(
-                        label="Your name",
-                        value=DEFAULT_IDENTITY,
-                        placeholder="e.g. Rizwan",
-                    )
-                    gr.HTML(
-                        "<div class='config-note'>LiveKit URL, API key, and secret are loaded securely from <code>.env</code>. You only need to choose the room and your name.</div>"
-                    )
-                    with gr.Row():
-                        start_session_button = gr.Button("Start session", variant="primary")
-                        end_session_button = gr.Button("End session")
-                    connection_state = gr.Markdown(f"**Session ready** · room `{DEFAULT_ROOM}`, joining as `{DEFAULT_IDENTITY}`.")
-                    connection_hint = gr.Markdown("Allow microphone access when your browser asks. The agent will join automatically after you start the session.", elem_classes="hint")
+            connection_state = gr.Markdown("**Ready to connect**", elem_classes="hl-server-message")
+            connection_hint = gr.Markdown("LiveKit credentials are loaded securely from the environment.", elem_classes="hl-server-hint")
+            start_session_button = gr.Button("Start HamzaLive session", elem_id="hl-start-session", elem_classes="hl-internal")
+            end_session_button = gr.Button("End HamzaLive session", elem_id="hl-end-session", elem_classes="hl-internal")
 
-                with gr.Group(elem_classes="surface flow-surface"):
-                    gr.HTML(
-                        """
-                        <div class="flow-title">How it works</div>
-                        <div class="flow-step"><span>1</span><div>Start a session to bring the voice agent online.</div></div>
-                        <div class="flow-step"><span>2</span><div>Connect to the room with your browser.</div></div>
-                        <div class="flow-step"><span>3</span><div>Enable your microphone and start talking.</div></div>
-                        """
-                    )
+            gr.HTML(
+                """
+                <div id="config-modal" class="hl-settings-modal hl-hidden">
+                  <div class="hl-settings-card">
+                    <div class="hl-settings-head"><div class="hl-settings-title"><span class="hl-settings-title-icon">☷</span><span>HamzaLive Configuration</span></div><button id="close-settings" class="hl-close-settings" type="button">×</button></div>
+                    <div class="hl-setting-group"><label class="hl-setting-label" for="select-model">AI Model Pipeline</label><select id="select-model" class="hl-setting-select"><option value="Gemini 2.0 Flash Voice">Gemini 2.0 Flash (Recommended - Lowest Latency)</option><option value="Gemini 1.5 Pro Live">Gemini 1.5 Pro Live (Reasoning Engine)</option><option value="Gemini Multimodal Live">Gemini 2.0 Multimodal Vision & Audio</option></select></div>
+                    <div class="hl-setting-group"><label class="hl-setting-label" for="select-voice">Synthesized Voice Persona</label><select id="select-voice" class="hl-setting-select"><option value="Aoede (Warm & Conversational)">Aoede — Warm, Expressive & Conversational</option><option value="Puck (Upbeat & Energetic)">Puck — Upbeat, Bright & Energetic</option><option value="Charon (Deep & Professional)">Charon — Deep, Clear & Professional</option><option value="Fenrir (Authoritative & Steady)">Fenrir — Authoritative & Direct</option><option value="Kore (Calm & Soothing)">Kore — Gentle & Calm</option></select></div>
+                    <div class="hl-setting-group"><label class="hl-setting-label" for="user-display-name">User Name</label><input id="user-display-name" class="hl-setting-input" type="text" value="Hamza" /></div>
+                    <div class="hl-setting-group"><div class="hl-range-row"><span>Voice Activity Sensitivity (VAD)</span><span id="vad-val">Medium (35ms)</span></div><input id="vad-range" class="hl-range" type="range" min="10" max="100" value="35" /></div>
+                    <button id="apply-settings" class="hl-apply-settings" type="button">Apply Settings</button>
+                  </div>
+                </div>
+                <footer class="hl-footer">Powered by HamzaLive Engine · Real-time WebRTC AI Architecture</footer>
+                """
+            )
 
-        start_session_button.click(
-            fn=start_session,
-            inputs=[room_input, identity_input],
-            outputs=[token_state, url_state, connection_state, connection_hint],
-        )
-        end_session_button.click(
-            fn=disconnect_session,
-            outputs=[token_state, url_state, connection_state, connection_hint],
-        )
+        start_session_button.click(fn=start_session, inputs=[room_input, identity_input], outputs=[token_state, url_state, connection_state, connection_hint])
+        end_session_button.click(fn=disconnect_session, outputs=[token_state, url_state, connection_state, connection_hint])
 
     return demo
 
@@ -774,12 +960,7 @@ if __name__ == "__main__":
     build_app().launch(
         server_name="127.0.0.1",
         server_port=7860,
-        theme=gr.themes.Base(
-            primary_hue="orange",
-            secondary_hue="sky",
-            neutral_hue="slate",
-            font=[gr.themes.GoogleFont("Inter"), "ui-sans-serif", "system-ui", "sans-serif"],
-        ),
+        theme=gr.themes.Base(primary_hue="violet", secondary_hue="blue", neutral_hue="slate", font=[gr.themes.GoogleFont("Inter"), "ui-sans-serif", "system-ui", "sans-serif"]),
         css=APP_CSS,
         js=LIVEKIT_CLIENT_JS,
         show_error=True,

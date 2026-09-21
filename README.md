@@ -316,7 +316,7 @@ You can run the worker directly with:
 python agent.py
 ```
 
-When run directly, it also starts the legacy Gradio dashboard defined inside `agent.py` on port `7860`. For normal use, prefer `python app.py`, because `app.py` provides the newer interface and manages the worker for you.
+When run directly, it starts only the LiveKit worker. For normal browser use, prefer `python app.py`, because `app.py` provides the Voice Agent Workspace and manages the worker for you.
 
 Do not run `agent.py` directly and `app.py` at the same time unless you intentionally change the ports and worker setup. Both may try to use port `7860`, and duplicate workers can receive the same room dispatch.
 
@@ -326,7 +326,7 @@ Do not run `agent.py` directly and `app.py` at the same time unless you intentio
 | --- | --- |
 | Text chat, coding, documents, images, or Ollama | `python -m streamlit run main.py` |
 | Friendly LiveKit voice interface | `python app.py` |
-| Direct legacy LiveKit worker/dashboard | `python agent.py` |
+| Direct LiveKit worker | `python agent.py` |
 
 ## Stopping the applications
 
