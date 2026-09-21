@@ -1,0 +1,30 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Python caches and virtual environments
+__pycache__/
+*.py[cod]
+*.pyd
+.venv/
+venv/
+env/
+ENV/
+
+# Local application state and user data
+conversation.json
+conversations.json
+.streamlit/
+.gradio/
+
+# Workspace-only agent metadata
+.agents/
+.claude/
+
+# Local logs and temporary files
+*.log
+*.tmp
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
