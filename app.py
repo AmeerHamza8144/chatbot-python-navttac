@@ -322,6 +322,7 @@ body, .gradio-container { background: radial-gradient(circle at 82% 0%, #e8f8ff 
 .advanced-panel { border: 1px solid var(--line) !important; border-radius: 15px !important; background: rgba(255,255,255,.72) !important; box-shadow: none !important; }
 .advanced-panel > .label-wrap { color: var(--ink) !important; font-size: 12px !important; font-weight: 750 !important; }
 .settings-label { color: var(--muted); font-size: 11px; font-weight: 750; margin: 2px 0 5px; }
+.lk-internal-state { position: fixed !important; left: -10000px !important; top: -10000px !important; width: 1px !important; height: 1px !important; opacity: 0 !important; pointer-events: none !important; overflow: hidden !important; }
 footer { display: none !important; }
 @media (max-width: 900px) { .gradio-container { padding: 20px 15px 30px !important; } .hero { align-items: flex-start; flex-direction: column; } .hero h1 { font-size: 31px; } .session-surface { min-height: auto; } }
 """
@@ -395,8 +396,8 @@ LIVEKIT_CLIENT_JS = f"""
   function readGradioValue(selector) {{
     const root = $(selector);
     if (!root) return "";
-    const field = root.querySelector("textarea, input");
-    return field ? field.value : "";
+    const field = root.matches("textarea, input") ? root : root.querySelector("textarea, input");
+    return field ? field.value : (root.dataset.value || "");
   }}
 
   function setConsoleState(label, live = false) {{
@@ -645,8 +646,20 @@ def build_app() -> gr.Blocks:
         # The token is deliberately kept out of the visible interface. The
         # browser-side LiveKit console reads this state after a Python callback
         # issues a room token.
-        token_state = gr.Textbox(value="", visible=False, elem_id="lk-token-state")
-        url_state = gr.Textbox(value=os.getenv("LIVEKIT_URL", ""), visible=False, elem_id="lk-url-state")
+        token_state = gr.Textbox(
+            value="",
+            show_label=False,
+            container=False,
+            elem_id="lk-token-state",
+            elem_classes="lk-internal-state",
+        )
+        url_state = gr.Textbox(
+            value=os.getenv("LIVEKIT_URL", ""),
+            show_label=False,
+            container=False,
+            elem_id="lk-url-state",
+            elem_classes="lk-internal-state",
+        )
 
         with gr.Row(elem_classes="app-shell"):
             with gr.Column(scale=8, elem_classes="main-panel"):
