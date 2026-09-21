@@ -248,9 +248,9 @@ http://127.0.0.1:7860
 
 ### Friendly session flow
 
-1. Enter or confirm the LiveKit URL, room name, and participant identity.
+1. Confirm the room name and participant identity. The LiveKit URL and credentials are loaded securely from `.env`.
 2. Click **Start session**.
-3. The dashboard starts the `agent.py` worker and creates a secure LiveKit room token.
+3. The backend automatically starts the `agent.py` worker and creates a secure LiveKit room token.
 4. The browser connects to the LiveKit room.
 5. Click **Enable microphone** when you are ready to speak.
 6. Talk to the agent and listen to its response in the browser.
@@ -275,7 +275,6 @@ The microphone is intentionally muted when the room first connects. This prevent
 - Supports typed messages through the `lk.chat` LiveKit text stream.
 - Shows connection, participant, and activity information.
 - Stops the managed worker when **End session** is clicked.
-- Provides advanced worker controls for starting, restarting, or stopping the worker separately.
 
 The browser-side LiveKit client requires internet access to load the CDN script. The LiveKit URL and API credentials must also be valid.
 
@@ -337,7 +336,7 @@ In the terminal running the application, press:
 Ctrl+C
 ```
 
-For the LiveKit dashboard, clicking **End session** also disconnects the browser and stops the worker managed by `app.py`.
+For the LiveKit dashboard, clicking **End session** disconnects the browser and stops the backend worker managed by `app.py`.
 
 Stopping `main.py` does not stop Ollama. If you started Ollama manually with `ollama serve`, stop that terminal separately when you are finished.
 
@@ -410,7 +409,7 @@ python -m streamlit run main.py --server.port 8502
 
 ### The worker is offline
 
-Open **Advanced worker controls** and check the status card. Verify the LiveKit credentials, then restart the worker. If the worker exits immediately, run `python agent.py` in a separate terminal to view its startup error.
+Start a session from `app.py`; the backend worker is started automatically. Verify the LiveKit credentials in `.env`. If the worker exits immediately, run the worker command from the terminal to inspect its startup error.
 
 ### The agent connects but does not respond
 
@@ -433,7 +432,7 @@ Check all of the following:
 ## Development notes
 
 - The project uses Python type hints and Python 3.13 syntax.
-- The LiveKit worker and Gradio UI are separate processes when started through `app.py`.
+- The Gradio UI is the backend controller, and it starts the LiveKit worker as a managed subprocess when a session begins.
 - `app.py` owns the worker process it starts and stops only that process.
 - `main.py` persists chat history after user and assistant messages.
 - Changes to `.env` require restarting the relevant application.

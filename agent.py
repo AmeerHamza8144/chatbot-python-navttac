@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import sys
 import threading
 import time
@@ -11,7 +12,7 @@ from livekit.plugins import ai_coustics
 
 import gradio as gr
 
-load_dotenv(".env")
+load_dotenv(Path(__file__).with_name(".env"))
 
 # ==============================================================================
 # LIVEKIT AGENT WORKER DEFINITION

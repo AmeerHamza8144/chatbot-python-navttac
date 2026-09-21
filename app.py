@@ -185,35 +185,39 @@ def _create_token(room_name: str, participant_identity: str) -> str:
     return access_token.to_jwt()
 
 
-def connect_session(
+def start_session(
     room_name: str,
     participant_identity: str,
-    livekit_url: str,
 ) -> tuple[str, str, str, str]:
-    """Validate connection settings and hand a short-lived token to the browser."""
+    """Start the backend worker and hand a short-lived token to the browser."""
 
     room_name = (room_name or "").strip()
     participant_identity = (participant_identity or "").strip()
-    livekit_url = (livekit_url or os.getenv("LIVEKIT_URL", "")).strip().rstrip("/")
+    livekit_url = os.getenv("LIVEKIT_URL", "").strip().rstrip("/")
 
     if not _env_ready():
         return "", "", "Not connected", "Add the LiveKit credentials to .env before connecting."
     if not room_name or not participant_identity:
         return "", "", "Not connected", "Room name and participant identity are required."
     if not livekit_url.startswith(("ws://", "wss://", "http://", "https://")):
-        return "", "", "Not connected", "LiveKit URL must start with ws://, wss://, http://, or https://."
+        return "", "", "Not connected", "LIVEKIT_URL in .env must start with ws://, wss://, http://, or https://."
+
+    _worker_status, worker_message = start_worker()
+    if not _worker_is_running():
+        return "", "", "Not connected", f"The backend worker could not start. {worker_message}"
 
     try:
         token = _create_token(room_name, participant_identity)
     except Exception as exc:
+        stop_worker()
         return "", "", "Connection error", f"Could not create a LiveKit token: {exc}"
 
-    worker_note = " Worker is online." if _worker_is_running() else " Start the worker before speaking."
-    return token, livekit_url, f"Ready · {room_name}", f"Token issued for {participant_identity}.{worker_note}"
+    return token, livekit_url, f"Ready · {room_name}", f"Token issued for {participant_identity}. Backend worker is online."
 
 
 def disconnect_session() -> tuple[str, str, str, str]:
-    return "", "", "Disconnected", "The browser session will disconnect now."
+    stop_worker()
+    return "", "", "Disconnected", "The browser session ended and the backend worker is offline."
 
 
 def _shutdown_worker() -> None:
@@ -734,11 +738,8 @@ def build_app() -> gr.Blocks:
                         value=DEFAULT_IDENTITY,
                         placeholder="e.g. Rizwan",
                     )
-                    url_input = gr.Textbox(
-                        label="LiveKit URL",
-                        value=os.getenv("LIVEKIT_URL", ""),
-                        placeholder="wss://your-project.livekit.cloud",
-                        elem_id="lk-url-input",
+                    gr.HTML(
+                        "<div class='config-note'>LiveKit URL, API key, and secret are loaded securely from <code>.env</code>. You only need to choose the room and your name.</div>"
                     )
                     with gr.Row():
                         start_session_button = gr.Button("Start session", variant="primary")
@@ -756,44 +757,15 @@ def build_app() -> gr.Blocks:
                         """
                     )
 
-                with gr.Accordion("Advanced worker controls", open=False, elem_classes="advanced-panel"):
-                    gr.HTML(
-                        """
-                        <div class="control-title">Agent worker</div>
-                        <div class="control-description">Most sessions only need the buttons above. Use these controls when you want to manage the <code>agent.py</code> worker separately.</div>
-                        """
-                    )
-                    worker_status = gr.Markdown(worker_status_markdown())
-                    with gr.Row(elem_classes="worker-buttons"):
-                        start_button = gr.Button("Start worker only", variant="primary")
-                        restart_button = gr.Button("Restart worker")
-                        stop_button = gr.Button("Stop worker")
-                    activity = gr.Markdown("Ready.", elem_classes="hint")
-                    gr.HTML(
-                        f"<div class='config-note'>Registered agent <code>{AGENT_NAME}</code> · room-level dispatch is included in each generated token.</div>"
-                    )
-
-        refresh_timer = gr.Timer(3)
-
         start_session_button.click(
-            fn=start_worker,
-            outputs=[worker_status, activity],
-        ).then(
-            fn=connect_session,
-            inputs=[room_input, identity_input, url_input],
+            fn=start_session,
+            inputs=[room_input, identity_input],
             outputs=[token_state, url_state, connection_state, connection_hint],
         )
         end_session_button.click(
             fn=disconnect_session,
             outputs=[token_state, url_state, connection_state, connection_hint],
-        ).then(
-            fn=stop_worker,
-            outputs=[worker_status, activity],
         )
-        start_button.click(fn=start_worker, outputs=[worker_status, activity])
-        restart_button.click(fn=restart_worker, outputs=[worker_status, activity])
-        stop_button.click(fn=stop_worker, outputs=[worker_status, activity])
-        refresh_timer.tick(fn=worker_status_markdown, outputs=worker_status)
 
     return demo
 
