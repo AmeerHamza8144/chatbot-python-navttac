@@ -29,8 +29,8 @@ load_dotenv(Path(__file__).with_name(".env"))
 
 PROJECT_DIR = Path(__file__).resolve().parent
 AGENT_NAME = "my-agent"
-DEFAULT_ROOM = "voice-lab"
-DEFAULT_IDENTITY = f"operator-{uuid.uuid4().hex[:6]}"
+DEFAULT_ROOM = f"voice-agent-{uuid.uuid4().hex[:12]}"
+DEFAULT_IDENTITY = "Rizwan"
 LIVEKIT_CLIENT_CDN = "https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"
 
 _worker_process: subprocess.Popen[bytes] | None = None
@@ -230,34 +230,40 @@ APP_CSS = """
   --muted: #6c7b91;
   --line: #e4eaf2;
   --surface: #ffffff;
-  --canvas: #f6f8fc;
-  --accent: #3467f5;
-  --accent-soft: #edf2ff;
+  --canvas: #f7fbff;
+  --accent: #f97316;
+  --accent-deep: #ea580c;
+  --accent-soft: #fff2e8;
+  --sky: #38bdf8;
+  --sky-soft: #e8f8ff;
   --mint: #0ba986;
   --shadow: 0 18px 45px rgba(24, 49, 87, .08);
 }
 
-body, .gradio-container { background: var(--canvas) !important; color: var(--ink) !important; }
+body, .gradio-container { background: radial-gradient(circle at 82% 0%, #e8f8ff 0, transparent 28%), var(--canvas) !important; color: var(--ink) !important; }
 .gradio-container { max-width: 1440px !important; padding: 28px 34px 42px !important; }
 .app-shell { max-width: 1210px; margin: 0 auto; }
 .hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin: 8px 0 26px; }
-.eyebrow { color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; margin-bottom: 10px; }
+.eyebrow { color: var(--accent-deep); font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; margin-bottom: 10px; }
 .hero h1 { color: var(--ink); font-size: 38px; line-height: 1.08; letter-spacing: -.045em; margin: 0 0 10px; }
 .hero p { color: var(--muted); font-size: 15px; margin: 0; max-width: 650px; }
 .hero-mark { display: flex; align-items: center; gap: 10px; color: var(--ink); font-size: 13px; font-weight: 700; white-space: nowrap; }
-.hero-mark .mark { display: grid; place-items: center; width: 38px; height: 38px; color: white; border-radius: 12px; background: linear-gradient(135deg, #3467f5, #6f8cff); box-shadow: 0 9px 20px rgba(52,103,245,.25); }
+.hero-mark .mark { display: grid; place-items: center; width: 38px; height: 38px; color: white; border-radius: 12px; background: linear-gradient(135deg, var(--accent), var(--sky)); box-shadow: 0 9px 20px rgba(249,115,22,.25); }
 .surface { border: 1px solid var(--line); border-radius: 18px; background: var(--surface); box-shadow: var(--shadow); }
 .session-surface { min-height: 560px; overflow: hidden; }
 .session-top { display: flex; justify-content: space-between; align-items: center; padding: 24px 26px 19px; border-bottom: 1px solid var(--line); }
+.session-status-group { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; justify-content: flex-end; }
 .section-kicker { color: var(--muted); font-size: 11px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
 .session-title { color: var(--ink); font-size: 22px; font-weight: 750; margin-top: 7px; }
 .session-state { display: inline-flex; align-items: center; gap: 8px; color: #7890a8; background: #f5f7fb; border: 1px solid var(--line); border-radius: 999px; padding: 7px 11px; font-size: 12px; font-weight: 750; }
 .session-state .state-dot { width: 7px; height: 7px; border-radius: 50%; background: #a7b4c4; }
 .session-state.live { color: #08785e; background: #effbf7; border-color: #c8f0e5; }
 .session-state.live .state-dot { background: var(--mint); box-shadow: 0 0 0 4px rgba(11,169,134,.12); }
-.live-console { padding: 24px 26px 28px; }
-.console-visual { display: grid; place-items: center; min-height: 228px; border: 1px solid #e4ebf6; border-radius: 15px; background: radial-gradient(circle at 50% 36%, #f2f5ff 0, #fafbfe 37%, #fff 70%); text-align: center; }
-.voice-orb { display: grid; place-items: center; width: 100px; height: 100px; border-radius: 50%; color: var(--accent); background: #fff; border: 10px solid #eff3ff; box-shadow: 0 0 0 1px #dae4ff, 0 14px 25px rgba(56, 88, 170, .1); font-size: 30px; }
+.live-console { padding: 24px 26px 28px; border-top: 3px solid transparent; border-image: linear-gradient(90deg, var(--accent), var(--sky)) 1; }
+.console-visual { display: grid; place-items: center; min-height: 228px; border: 1px solid #dff1fb; border-radius: 15px; background: radial-gradient(circle at 50% 36%, #fff0e5 0, #eefaff 38%, #fff 72%); text-align: center; }
+.voice-orb { position: relative; display: grid; place-items: center; width: 100px; height: 100px; border-radius: 50%; color: var(--accent-deep); background: #fff; border: 10px solid #fff4ec; box-shadow: 0 0 0 1px #ffd2b4, 0 14px 25px rgba(249,115,22, .14); font-size: 30px; }
+.voice-orb::before, .voice-orb::after { position: absolute; content: ""; inset: -21px; border: 1px solid rgba(56,189,248,.35); border-radius: 50%; }
+.voice-orb::after { inset: -34px; border-color: rgba(249,115,22,.18); }
 .voice-orb.speaking { animation: pulse 1.4s ease-in-out infinite; }
 .console-copy { margin-top: 17px; color: var(--ink); font-size: 14px; font-weight: 700; }
 .console-subcopy { margin-top: 6px; color: var(--muted); font-size: 12px; }
@@ -265,7 +271,7 @@ body, .gradio-container { background: var(--canvas) !important; color: var(--ink
 .console-actions { display: flex; gap: 10px; align-items: center; margin-top: 18px; }
 .console-actions button { border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 10px; padding: 10px 15px; font-size: 12px; font-weight: 750; cursor: pointer; transition: .18s ease; }
 .console-actions button:hover { border-color: #b9c9ef; transform: translateY(-1px); }
-.console-actions button.primary { color: #fff; border-color: var(--accent); background: var(--accent); }
+.console-actions button.primary { color: #fff; border-color: var(--accent); background: linear-gradient(135deg, var(--accent), var(--accent-deep)); }
 .console-actions button.danger { color: #b84052; }
 .data-row { display: flex; align-items: center; gap: 9px; margin-top: 19px; }
 .data-row input { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; color: var(--ink); background: #fbfcfe; font-size: 12px; outline: none; }
@@ -288,6 +294,8 @@ body, .gradio-container { background: var(--canvas) !important; color: var(--ink
 .transcript-entry.interim .transcript-bubble { opacity: .68; font-style: italic; }
 .call-control:disabled { opacity: .45; cursor: not-allowed !important; transform: none !important; }
 .right-stack { gap: 18px; }
+.sidebar-panel { order: -1; }
+.main-panel { order: 1; }
 .control-surface { padding: 22px; }
 .control-title { color: var(--ink); font-size: 16px; font-weight: 750; margin-bottom: 5px; }
 .control-description { color: var(--muted); font-size: 12px; line-height: 1.55; margin-bottom: 15px; }
@@ -399,6 +407,14 @@ LIVEKIT_CLIENT_JS = f"""
     }}
   }}
 
+  function setListeningState(label, live = false) {{
+    const badge = $("#lk-listening-status");
+    if (badge) {{
+      badge.classList.toggle("live", live);
+      badge.innerHTML = `<span class="state-dot"></span>${{label}}`;
+    }}
+  }}
+
   function setConsoleCopy(title, subtitle) {{
     setText("#lk-console-copy", title);
     setText("#lk-console-subcopy", subtitle);
@@ -444,12 +460,14 @@ LIVEKIT_CLIENT_JS = f"""
     clearAudio();
     clearTranscript();
     const ended = reason === "Session ended";
-    setConsoleState(ended ? "Session ended" : "Ready to start", false);
+    setConsoleState(ended ? "Ended" : "Ready", false);
+    setListeningState("Muted", false);
     setConsoleCopy(
       ended ? "Session ended safely" : "Welcome — your session is ready",
       ended ? "Whenever you’re ready, start a new session on the right." : "Start a session on the right, then enable your microphone.",
     );
     updateParticipantCount();
+    setText("#lk-room-id", "Room not connected");
     appendLog(reason);
     const mic = $("#lk-mic-button");
     if (mic) {{ mic.textContent = "Unmute microphone"; mic.classList.remove("primary"); }}
@@ -521,8 +539,10 @@ LIVEKIT_CLIENT_JS = f"""
       setControlDisabled("#lk-speaker-button", false);
       setControlDisabled("#lk-disconnect-button", false);
       setSpeakerMuted(false);
-      setConsoleState("Live", true);
-      setConsoleCopy("You’re connected", "Enable your microphone and speak naturally to the voice agent.");
+      setConsoleState("Connected", true);
+      setListeningState("Muted", false);
+      setText("#lk-room-id", `Room: ${{readGradioValue("#lk-room-input")}}`);
+      setConsoleCopy("Go ahead — just talk.", "Unmute your microphone and speak naturally to the voice agent.");
       updateParticipantCount();
       appendLog("Connected · microphone is off");
     }} catch (error) {{
@@ -541,10 +561,11 @@ LIVEKIT_CLIENT_JS = f"""
       await room.localParticipant.setMicrophoneEnabled(microphoneEnabled);
       const mic = $("#lk-mic-button");
       if (mic) {{
-        mic.textContent = microphoneEnabled ? "Mute microphone" : "Unmute microphone";
+        mic.textContent = microphoneEnabled ? "Mute" : "Unmute microphone";
         mic.classList.toggle("primary", microphoneEnabled);
       }}
-      setConsoleCopy(microphoneEnabled ? "Microphone is live" : "You’re connected", microphoneEnabled ? "Speak normally. The agent will respond in the room." : "Enable your microphone when you’re ready.");
+      setListeningState(microphoneEnabled ? "Listening" : "Muted", microphoneEnabled);
+      setConsoleCopy(microphoneEnabled ? "Go ahead — just talk." : "You’re connected", microphoneEnabled ? "Your speech is being transcribed live below." : "Unmute your microphone whenever you’re ready.");
       appendLog(microphoneEnabled ? "Microphone enabled" : "Microphone muted");
     }} catch (error) {{ appendLog(error?.message || "Microphone permission was not granted"); }}
   }}
@@ -612,9 +633,9 @@ def build_app() -> gr.Blocks:
             """
             <div class="app-shell hero">
               <div>
-                <div class="eyebrow">LiveKit / friendly voice workspace</div>
-                <h1>Good to see you.</h1>
-                <p>Start a voice session when you’re ready. Your microphone stays muted until you choose to speak, and ending the session cleanly closes the room and worker.</p>
+                <div class="eyebrow">LiveKit / browser voice workspace</div>
+                <h1>Voice agent</h1>
+                <p>A LiveKit voice agent you can talk to in the browser — deepgram/nova-3 for hearing, google/gemma-4-31b-it for thinking, inworld/inworld-tts-2 (Ashley) for speaking.</p>
               </div>
               <div class="hero-mark"><span class="mark">◉</span> Agent workspace</div>
             </div>
@@ -628,7 +649,7 @@ def build_app() -> gr.Blocks:
         url_state = gr.Textbox(value=os.getenv("LIVEKIT_URL", ""), visible=False, elem_id="lk-url-state")
 
         with gr.Row(elem_classes="app-shell"):
-            with gr.Column(scale=7):
+            with gr.Column(scale=8, elem_classes="main-panel"):
                 with gr.Group(elem_classes="surface session-surface"):
                     gr.HTML(
                         """
@@ -638,14 +659,18 @@ def build_app() -> gr.Blocks:
                               <div class="section-kicker">Live session</div>
                               <div class="session-title">Your live conversation</div>
                             </div>
-                            <div id="lk-connection-status" class="session-state"><span class="state-dot"></span>Ready to start</div>
+                            <div class="session-status-group">
+                              <div id="lk-connection-status" class="session-state"><span class="state-dot"></span>Ready</div>
+                              <div id="lk-listening-status" class="session-state"><span class="state-dot"></span>Muted</div>
+                              <div id="lk-room-id" class="console-subcopy">Room not connected</div>
+                            </div>
                           </div>
                           <div class="live-console">
                             <div class="console-visual">
                               <div>
-                                <div id="lk-voice-orb" class="voice-orb">◉</div>
-                                <div id="lk-console-copy" class="console-copy">Welcome — your session is ready</div>
-                                <div id="lk-console-subcopy" class="console-subcopy">Start a session on the right, then enable your microphone.</div>
+                                <div id="lk-voice-orb" class="voice-orb">🎙</div>
+                                <div id="lk-console-copy" class="console-copy">Go ahead — just talk.</div>
+                                <div id="lk-console-subcopy" class="console-subcopy">Start a session, then unmute your microphone when you’re ready.</div>
                               </div>
                             </div>
                             <div class="console-actions">
@@ -677,7 +702,7 @@ def build_app() -> gr.Blocks:
                         """
                     )
 
-            with gr.Column(scale=5, elem_classes="right-stack"):
+            with gr.Column(scale=4, elem_classes="sidebar-panel right-stack"):
                 with gr.Group(elem_classes="surface control-surface"):
                     gr.HTML(
                         """
@@ -692,9 +717,9 @@ def build_app() -> gr.Blocks:
                         elem_id="lk-room-input",
                     )
                     identity_input = gr.Textbox(
-                        label="Participant identity",
+                        label="Your name",
                         value=DEFAULT_IDENTITY,
-                        placeholder="e.g. operator-01",
+                        placeholder="e.g. Rizwan",
                     )
                     url_input = gr.Textbox(
                         label="LiveKit URL",
@@ -705,8 +730,8 @@ def build_app() -> gr.Blocks:
                     with gr.Row():
                         start_session_button = gr.Button("Start session", variant="primary")
                         end_session_button = gr.Button("End session")
-                    connection_state = gr.Markdown("**Ready to begin** · We’ll guide you through the connection.")
-                    connection_hint = gr.Markdown("Your microphone will start muted. When you see **You’re connected**, choose **Enable microphone** to begin speaking.", elem_classes="hint")
+                    connection_state = gr.Markdown(f"**Session ready** · room `{DEFAULT_ROOM}`, joining as `{DEFAULT_IDENTITY}`.")
+                    connection_hint = gr.Markdown("Allow microphone access when your browser asks. The agent will join automatically after you start the session.", elem_classes="hint")
 
                 with gr.Group(elem_classes="surface flow-surface"):
                     gr.HTML(
@@ -765,8 +790,8 @@ if __name__ == "__main__":
         server_name="127.0.0.1",
         server_port=7860,
         theme=gr.themes.Base(
-            primary_hue="blue",
-            secondary_hue="slate",
+            primary_hue="orange",
+            secondary_hue="sky",
             neutral_hue="slate",
             font=[gr.themes.GoogleFont("Inter"), "ui-sans-serif", "system-ui", "sans-serif"],
         ),
