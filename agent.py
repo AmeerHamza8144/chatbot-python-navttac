@@ -1,4 +1,5 @@
 import os
+import sys
 import threading
 import time
 from dotenv import load_dotenv
@@ -190,6 +191,11 @@ def run_gradio_background():
 # ==============================================================================
 
 if __name__ == "__main__":
+    # LiveKit Agents 1.8+ requires an explicit CLI command. Default to the
+    # production worker when this file is run without arguments.
+    if len(sys.argv) == 1:
+        sys.argv.append("start")
+
     # 1. Start Gradio in background thread
     gradio_thread = threading.Thread(target=run_gradio_background, daemon=True)
     gradio_thread.start()

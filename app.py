@@ -108,7 +108,7 @@ def start_worker() -> tuple[str, str]:
         command = [
             sys.executable,
             "-c",
-            "from agent import agents, server; agents.cli.run_app(server)",
+            "import sys; sys.argv = ['agent-worker', 'start']; from agent import agents, server; agents.cli.run_app(server)",
         ]
         worker_env = os.environ.copy()
         worker_env["PYTHONUNBUFFERED"] = "1"
