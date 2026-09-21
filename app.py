@@ -420,7 +420,98 @@ body, .gradio-container {
   .hl-transcript-column { min-height: 425px; padding: 16px !important; }
   .hl-control-dock { align-items: stretch; }
   .hl-control-group { width: 100%; }
-  .hl-main-action { width: 100%; justify-content: center; }
+  .hl-main-action { flex: 1 1 190px; justify-content: center; }
+}
+
+/* Light workspace theme */
+body, .gradio-container {
+  background: #f6f8fc !important;
+  color: #0f172a !important;
+}
+.hl-app-header {
+  background: rgba(255,255,255,.94);
+  border-bottom-color: #e2e8f0;
+}
+.hl-brand-name { color: #0f172a; }
+.hl-tagline { color: #64748b; }
+.hl-status-badge { background: #f8fafc; border-color: #dbe3ef; color: #64748b; }
+.hl-settings-button { background: #fff; border-color: #dbe3ef; color: #475569; box-shadow: 0 4px 10px rgba(15,23,42,.05); }
+.hl-settings-button:hover { background: #eff6ff; border-color: #93c5fd; color: #1d4ed8; }
+.hl-panel {
+  background: #fff;
+  border-color: #dbe3ef;
+  box-shadow: 0 20px 50px rgba(15,23,42,.09);
+}
+.hl-action-row { background: #fff; border-bottom-color: #e2e8f0; }
+.hl-pill { background: #eff6ff; border-color: #bfdbfe; color: #1e3a8a; }
+.hl-pill.voice { background: #fff7ed; border-color: #fed7aa; color: #9a3412; }
+.hl-pill-icon { color: #2563eb; }
+.hl-pill.voice .hl-pill-icon { color: #ea580c; }
+.hl-visual-column { border-right-color: #e2e8f0; }
+.hl-visualizer {
+  background: radial-gradient(circle at 50% 25%, rgba(219,234,254,.9), transparent 42%), linear-gradient(180deg, #ffffff, #eff6ff);
+}
+.hl-visualizer::before { background: radial-gradient(circle at center, rgba(59,130,246,.16), rgba(249,115,22,.08) 42%, transparent 72%); }
+.hl-ambient-glow { background: radial-gradient(circle at center, rgba(37,99,235,.17), rgba(249,115,22,.08), transparent 68%); }
+.hl-orb-core { border-color: #bfdbfe; background: rgba(255,255,255,.9); color: #1d4ed8; box-shadow: 0 8px 22px rgba(37,99,235,.12), inset 0 0 20px rgba(219,234,254,.7); }
+.hl-orb-core:hover { border-color: #2563eb; box-shadow: 0 0 28px rgba(37,99,235,.18), inset 0 0 20px rgba(219,234,254,.7); }
+.hl-orb-icon { color: #2563eb; }
+.hl-orb-subtext { color: #64748b; }
+.hl-session-title { color: #0f172a; }
+.hl-session-subtitle { color: #64748b; }
+.hl-mode-indicator { background: rgba(255,255,255,.9); border-color: #dbe3ef; color: #475569; box-shadow: 0 8px 20px rgba(15,23,42,.08); }
+.hl-mode-dot { background: #16a34a; }
+.hl-transcript-column { background: #f8fafc; border-left-color: #e2e8f0; }
+.hl-transcript-head { border-bottom-color: #e2e8f0; }
+.hl-transcript-title { color: #334155; }
+.hl-transcript-action:hover { background: #eff6ff; color: #1d4ed8; }
+.hl-transcript-feed { border-color: #dbe3ef; background: #fff; }
+.hl-empty-transcript { color: #94a3b8; }
+.hl-empty-icon { color: #cbd5e1; }
+.hl-message-meta { color: #94a3b8; }
+.hl-message-agent { color: #2563eb; }
+.hl-message-bubble { border-color: #dbe3ef; background: #f1f5f9; color: #1e293b; }
+.hl-message.user .hl-message-bubble { background: linear-gradient(135deg, #2563eb, #1d4ed8); }
+.hl-message.system .hl-message-bubble { border-color: #fed7aa; background: #fff7ed; color: #c2410c; }
+.hl-text-input { border-color: #dbe3ef; background: #fff; color: #0f172a; }
+.hl-text-input::placeholder { color: #94a3b8; }
+.hl-text-input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
+.hl-text-submit { background: linear-gradient(135deg, #2563eb, #1d4ed8); }
+.hl-control-dock { justify-content: flex-start; border-top-color: #e2e8f0; background: #fff; }
+.hl-control-group { gap: 9px; }
+.hl-control, .hl-main-action {
+  min-height: 40px;
+  border-radius: 11px;
+  box-shadow: 0 4px 10px rgba(15,23,42,.06);
+}
+.hl-control { border-color: #cbd5e1; background: #fff; color: #1e3a8a; }
+.hl-control:hover:not(:disabled) { border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; box-shadow: 0 7px 15px rgba(37,99,235,.12); }
+.hl-control-icon { color: #2563eb; }
+.hl-control-icon.cyan { color: #2563eb; }
+.hl-control-icon.purple { color: #ea580c; }
+.hl-main-action {
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  box-shadow: 0 8px 17px rgba(37,99,235,.22);
+}
+.hl-main-action:hover { filter: brightness(1.08); box-shadow: 0 10px 20px rgba(37,99,235,.28); }
+.hl-main-action.connected { background: linear-gradient(135deg, #f97316, #ea580c); box-shadow: 0 8px 17px rgba(249,115,22,.22); }
+.hl-main-action.connected:hover { background: linear-gradient(135deg, #ea580c, #c2410c); }
+.hl-server-message, .hl-server-hint { color: #64748b !important; }
+.hl-settings-modal { background: rgba(15,23,42,.4); }
+.hl-settings-card { border-color: #dbe3ef; background: rgba(255,255,255,.98); box-shadow: 0 24px 60px rgba(15,23,42,.18); }
+.hl-settings-head { border-bottom-color: #e2e8f0; }
+.hl-settings-title { color: #0f172a; }
+.hl-close-settings { color: #64748b; }
+.hl-close-settings:hover { background: #eff6ff; color: #1d4ed8; }
+.hl-setting-label, .hl-range-row { color: #64748b; }
+.hl-setting-select, .hl-setting-input { border-color: #dbe3ef; background: #f8fafc; color: #1e293b; }
+.hl-setting-select:focus, .hl-setting-input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
+.hl-apply-settings { background: linear-gradient(135deg, #2563eb, #1d4ed8); box-shadow: 0 8px 16px rgba(37,99,235,.2); }
+.hl-footer { border-top-color: #e2e8f0; color: #94a3b8; }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid rgba(37,99,235,.25); outline-offset: 2px; }
+@media (max-width: 900px) {
+  .hl-control-group { width: 100%; }
+  .hl-main-action { flex: 1 1 190px; }
 }
 """
 
@@ -923,8 +1014,8 @@ def build_app() -> gr.Blocks:
                         <button id="btn-mic" class="hl-control" type="button" disabled><span id="btn-mic-icon" class="hl-control-icon">♩</span><span id="btn-mic-text">Unmute Mic</span></button>
                         <button id="btn-camera" class="hl-control" type="button" disabled><span id="btn-camera-icon" class="hl-control-icon cyan">▣</span><span>Vision Stream</span></button>
                         <button id="btn-speaker" class="hl-control" type="button" disabled><span id="btn-speaker-icon" class="hl-control-icon">◉</span><span id="btn-speaker-text">Speaker On</span></button>
+                        <button id="btn-main-session" class="hl-main-action" type="button"><span id="btn-main-icon">✦</span><span id="btn-main-text">Start HamzaLive Session</span></button>
                       </div>
-                      <button id="btn-main-session" class="hl-main-action" type="button"><span id="btn-main-icon">✦</span><span id="btn-main-text">Start HamzaLive Session</span></button>
                     </div>
                     """
                 )
